@@ -1,0 +1,4 @@
+bin/
+.vscode/
+textures/
+compile_commands.json
