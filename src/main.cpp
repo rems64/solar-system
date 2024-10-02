@@ -178,9 +178,8 @@ generate_sphere(size_t rings,
 
 	for (size_t ring = 0; ring <= rings; ring++)
 	{
-		size_t segments_count = (ring == 0 || ring == rings) ? 0 : segments;
 		// We have to have two overlapping vertices on one segment
-		for (size_t segment = 0; segment <= segments_count; segment++)
+		for (size_t segment = 0; segment <= segments; segment++)
 		{
 			// position
 			add_float3_radius_angles(
@@ -208,20 +207,13 @@ generate_sphere(size_t rings,
 		}
 	}
 
-	// First ring
-	for (size_t segment = 0; segment < segments; segment++)
-	{
-		indices.push_back(0);
-		indices.push_back(1 + segment);
-		indices.push_back(1 + segment + 1);
-	}
-	for (size_t ring = 0; ring < (rings - 2); ring++)
+	for (size_t ring = 0; ring < (rings - 1); ring++)
 	{
 		for (size_t segment = 0; segment < segments; segment++)
 		{
-			size_t v1 = 1 + ring * (segments + 1) + segment;
+			size_t v1 = ring * (segments + 1) + segment;
 			size_t v2 = v1 + 1;
-			size_t v3 = 1 + (ring + 1) * (segments + 1) + segment;
+			size_t v3 = (ring + 1) * (segments + 1) + segment;
 			size_t v4 = v3 + 1;
 			// Triangle 1
 			indices.push_back(v2);
@@ -233,16 +225,6 @@ generate_sphere(size_t rings,
 			indices.push_back(v2);
 			indices.push_back(v3);
 		}
-	}
-
-	// Last ring
-	const size_t last_ring_index = 1 + (segments + 1) * (rings - 2);
-	const size_t last_index = 1 + (segments + 1) * (rings - 1);
-	for (size_t segment = 0; segment < segments; segment++)
-	{
-		indices.push_back(last_ring_index + segment + 1);
-		indices.push_back(last_ring_index + segment);
-		indices.push_back(last_index);
 	}
 
 	return std::pair<std::vector<float>, std::vector<unsigned int>>(vertices, indices);
@@ -833,7 +815,7 @@ int main()
 
 	Camera camera(60.f, (float)viewport_width / (float)viewport_height, 0.1f, 100.f);
 
-	camera.set_position(glm::vec3(0., -7., 5.));
+	camera.set_position(glm::vec3(0., -7., 0.));
 	camera.look_at(glm::vec3(0., 0., 0.));
 	camera.update_vp();
 
@@ -866,7 +848,7 @@ int main()
 		g_buffer->bind();
 
 		glEnable(GL_DEPTH_TEST);
-		// glEnable(GL_CULL_FACE);
+		glEnable(GL_CULL_FACE);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glViewport(0, 0, viewport_width, viewport_height);
 

@@ -20,5 +20,5 @@ void main()
    gPosition = vec4(vs_in.position, 1);
    gNormal = vec4(vs_in.normal, 1);
    gAlbedo = color;
-   gEmissive = vec4(0);
+   gEmissive = vec4(vec3(0), 1);
 }
