@@ -148,7 +148,8 @@ void create_compute_shader(const char *compute_path,
 std::pair<std::vector<float>, std::vector<unsigned int>>
 generate_sphere(size_t rings,
 				size_t segments,
-				float radius)
+				float radius,
+				bool inverse_normals = false)
 {
 	const size_t vertices_count = (rings - 1) * segments + 2;
 	const size_t triangles_count = (rings - 2) * segments * 2 + 2 * segments;
@@ -184,7 +185,9 @@ generate_sphere(size_t rings,
 				radius,
 				M_PI * ring / rings,
 				2 * M_PI * segment / segments);
-			const float length = sqrt(vertices[index] * vertices[index] + vertices[index + 1] * vertices[index + 1] + vertices[index + 2] * vertices[index + 2]);
+			float length = sqrt(vertices[index] * vertices[index] + vertices[index + 1] * vertices[index + 1] + vertices[index + 2] * vertices[index + 2]);
+			if (inverse_normals)
+				length *= -1.f;
 			vertices[index + 0] /= length;
 			vertices[index + 1] /= length;
 			vertices[index + 2] /= length;
@@ -241,7 +244,7 @@ struct Transform
 	// Global space matrix
 	glm::mat4 model_matrix = glm::mat4(1.0f);
 
-	glm::mat4 get_local_model_matrix()
+	glm::mat4 get_local_model_matrix() const
 	{
 		const glm::mat4 transform_x = glm::rotate(glm::mat4(1.0f),
 												  rotation.x,
@@ -263,13 +266,154 @@ struct Transform
 	}
 };
 
+constexpr GLenum get_format(const uint32_t depth)
+{
+	switch (depth)
+	{
+	case 3:
+		return GL_RGB32F;
+	case 4:
+		return GL_RGBA32F;
+	default:
+		break;
+	}
+	std::cout << "WARNING unsupported format (" << depth << ")" << std::endl;
+	return GL_RGBA32F;
+}
+
+constexpr GLenum get_components(const uint32_t depth)
+{
+	switch (depth)
+	{
+	case 3:
+		return GL_RGB;
+	case 4:
+		return GL_RGBA;
+	default:
+		break;
+	}
+	std::cout << "WARNING unsupported format (" << depth << ")" << std::endl;
+	return GL_RGBA;
+}
+
+class Shader
+{
+public:
+	Shader(const char *vertex_path, const char *fragment_path)
+	{
+		create_shader(vertex_path, fragment_path, &m_program);
+	};
+
+	void bind()
+	{
+		glUseProgram(m_program);
+	}
+
+	void set_uniform_mat4fv(const char *name, const glm::mat4 &matrix)
+	{
+		glUniformMatrix4fv(
+			glGetUniformLocation(m_program, name),
+			1,
+			GL_FALSE,
+			glm::value_ptr(matrix));
+	}
+
+	void set_uniform_int(const char *name, const float &value)
+	{
+		glUniform1f(
+			glGetUniformLocation(m_program, name),
+			value);
+	}
+
+private:
+	unsigned int m_program;
+};
+
+class Texture
+{
+public:
+	Texture(const char *path) : m_resource{0}, m_data(nullptr)
+	{
+		m_data = stbi_load(path, &m_width, &m_height, &m_depth, 0);
+
+		generate_texture();
+
+		stbi_image_free(m_data);
+	}
+
+	Texture(uint32_t width, uint32_t height, uint32_t depth) : m_resource(0), m_data(nullptr), m_width(width), m_height(height), m_depth(depth)
+	{
+		generate_texture();
+	}
+
+	const unsigned int get_resource() { return m_resource; };
+
+	const void bind() { glBindTexture(GL_TEXTURE_2D, m_resource); }
+
+private:
+	void generate_texture()
+	{
+		glGenTextures(1, &m_resource);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, m_resource);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexImage2D(GL_TEXTURE_2D, 0, get_format(m_depth), m_width, m_height,
+					 0, get_components(m_depth), GL_UNSIGNED_BYTE, m_data);
+
+		glBindImageTexture(0, m_resource, 0, GL_FALSE, 0, GL_READ_WRITE, get_format(m_depth));
+
+		glGenerateMipmap(GL_TEXTURE_2D);
+	}
+
+private:
+	int32_t m_width;
+	int32_t m_height;
+	int32_t m_depth;
+	unsigned char *m_data;
+	unsigned int m_resource;
+};
+
+class Material
+{
+public:
+	Material(std::shared_ptr<Shader> shader, std::vector<std::shared_ptr<Texture>> textures) : m_shader(shader), m_textures(textures) {};
+
+	const void bind()
+	{
+		m_shader->bind();
+		size_t i = 0;
+		for (auto it = m_textures.begin(); it != m_textures.end(); it++, i++)
+		{
+			glActiveTexture(GL_TEXTURE0 + i);
+			it->get()->bind();
+		}
+	}
+
+	const std::shared_ptr<Shader> get_shader() { return m_shader; };
+
+private:
+	std::shared_ptr<Shader> m_shader;
+	std::vector<std::shared_ptr<Texture>> m_textures;
+};
+
 class Drawable
 {
 public:
-	Drawable() = default;
-	virtual ~Drawable() = default;
+	Drawable(std::shared_ptr<Material> material) : m_material(material) {};
+	~Drawable() = default;
 
-	virtual void draw() const = 0;
+	virtual void draw() const
+	{
+		m_material->bind();
+	};
+
+	const std::shared_ptr<Material> get_material() { return m_material; };
+
+private:
+	std::shared_ptr<Material> m_material;
 };
 
 class SceneElement
@@ -288,6 +432,7 @@ public:
 	glm::vec3 get_scale() { return m_transform.scale; };
 
 	const glm::mat4 &get_model_matrix() const { return m_transform.model_matrix; };
+	const Transform &get_transform() const { return m_transform; };
 
 	void update()
 	{
@@ -329,7 +474,7 @@ private:
 class Mesh : public Drawable, public SceneElement
 {
 public:
-	Mesh() : m_vao(0), m_vertices{}, m_indices{} {};
+	Mesh(std::shared_ptr<Material> material) : Drawable(material), m_vao(0), m_vertices{}, m_indices{} {};
 
 	void build_vao(std::vector<float> &vertices, std::vector<unsigned int> &indices)
 	{
@@ -386,6 +531,7 @@ public:
 
 	void draw() const
 	{
+		Drawable::draw();
 		glBindVertexArray(m_vao);
 		glDrawElements(GL_TRIANGLES, m_indices.size(), GL_UNSIGNED_INT, 0);
 	}
@@ -400,7 +546,7 @@ protected:
 class Sphere : public Mesh
 {
 public:
-	Sphere(size_t rings, size_t segments, float radius) : Mesh()
+	Sphere(size_t rings, size_t segments, float radius, std::shared_ptr<Material> material) : Mesh(material)
 	{
 		auto [vertices, indices] = generate_sphere(rings, segments, radius);
 		m_vertices = std::move(vertices);
@@ -408,39 +554,6 @@ public:
 
 		build_vao(m_vertices, m_indices);
 	}
-};
-
-class Shader
-{
-public:
-	Shader(const char *vertex_path, const char *fragment_path)
-	{
-		create_shader(vertex_path, fragment_path, &m_program);
-	};
-
-	void bind()
-	{
-		glUseProgram(m_program);
-	}
-
-	void set_uniform_mat4fv(const char *name, const glm::mat4 &matrix)
-	{
-		glUniformMatrix4fv(
-			glGetUniformLocation(m_program, name),
-			1,
-			GL_FALSE,
-			glm::value_ptr(matrix));
-	}
-
-	void set_uniform_int(const char *name, const float &value)
-	{
-		glUniform1f(
-			glGetUniformLocation(m_program, name),
-			value);
-	}
-
-private:
-	unsigned int m_program;
 };
 
 class ComputeShader
@@ -578,24 +691,40 @@ int main()
 
 	auto solar_root = std::make_shared<SceneElement>();
 
-	auto moon = std::make_shared<Sphere>(20, 40, 0.1f);
-	auto earth = std::make_shared<Sphere>(20, 40, 0.5f);
-	auto sun = std::make_shared<Sphere>(20, 40, 1.0f);
+	auto sun_texture = std::make_shared<Texture>("textures/2k_sun.jpg");
+	auto earth_texture = std::make_shared<Texture>("textures/2k_earth_daymap.jpg");
+	auto moon_texture = std::make_shared<Texture>("textures/2k_moon.jpg");
+	auto flat_clouds_texture = std::make_shared<Texture>("textures/2k_earth_clouds.jpg");
+
+	auto sun_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/sun.frag");
+	auto planet_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/planet.frag");
+	auto flat_clouds_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/flat_clouds.frag");
+
+	auto sun_material = std::make_shared<Material>(sun_shader, std::vector{sun_texture});
+	auto earth_material = std::make_shared<Material>(planet_shader, std::vector{earth_texture});
+	auto flat_clouds_material = std::make_shared<Material>(flat_clouds_shader, std::vector{flat_clouds_texture});
+	auto moon_material = std::make_shared<Material>(planet_shader, std::vector{moon_texture});
+
+	auto sun = std::make_shared<Sphere>(20, 40, 1.0f, sun_material);
+	auto earth = std::make_shared<Sphere>(20, 40, 0.5f, earth_material);
+	auto flat_clouds = std::make_shared<Sphere>(20, 40, 0.55f, flat_clouds_material);
+	auto moon = std::make_shared<Sphere>(20, 40, 0.1f, moon_material);
 
 	drawables.push_back(sun);
 	drawables.push_back(earth);
+	drawables.push_back(flat_clouds);
 	drawables.push_back(moon);
 
 	moon->set_parent(earth.get());
 	earth->set_parent(solar_root.get());
 	sun->set_parent(solar_root.get());
+	flat_clouds->set_parent(earth.get());
 
 	earth->set_position(glm::vec3(4., 0., 0.));
 	moon->set_position(glm::vec3(2., 0., 0.));
 
 	solar_root->update();
 
-	Shader shader("shaders/sphere.vert", "shaders/sphere.frag");
 	Camera camera(60.f, (float)viewport_width / (float)viewport_height, 0.1f, 100.f);
 
 	camera.set_position(glm::vec3(0., -7., 5.));
@@ -605,51 +734,10 @@ int main()
 	glEnable(GL_CULL_FACE);
 	glEnable(GL_DEPTH_TEST);
 
-	// Compute
-	ComputeShader compute("shaders/test.compute");
-	// texture size
-	const unsigned int TEXTURE_WIDTH = 512, TEXTURE_HEIGHT = 512;
-	unsigned int texture;
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	glGenTextures(1, &texture);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, texture);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, TEXTURE_WIDTH, TEXTURE_HEIGHT, 0, GL_RGBA,
-				 GL_FLOAT, NULL);
-
-	glBindImageTexture(0, texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
-
-	compute.bind();
-	glDispatchCompute(TEXTURE_WIDTH, TEXTURE_HEIGHT, 1);
-
-	glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
-	glActiveTexture(GL_TEXTURE0);
-	// glBindTexture(GL_TEXTURE_2D, texture);
-
-	int x, y, n;
-	unsigned char *data = stbi_load("textures/2k_earth_daymap.jpg", &x, &y, &n, 0);
-	if (!data)
-	{
-		printf("Failed to load earth texture\n");
-		return EXIT_FAILURE;
-	}
-	unsigned int earth_texture;
-	glGenTextures(1, &earth_texture);
-	glBindTexture(GL_TEXTURE_2D, earth_texture);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, x, y, 0, n == 3 ? GL_RGB : GL_RGBA, GL_UNSIGNED_BYTE, data);
-	glGenerateMipmap(GL_TEXTURE_2D);
-	stbi_image_free(data);
-
-	glBindTexture(GL_TEXTURE_2D, earth_texture);
-
-	shader.set_uniform_int("tex", 0);
+	earth_material->get_shader()->set_uniform_int("tex", 0);
 
 	double start_time = glfwGetTime();
 	while (!glfwWindowShouldClose(window))
@@ -664,17 +752,20 @@ int main()
 
 		earth->set_position(4.f * glm::vec3(glm::cos(time), glm::sin(time), 0.));
 		moon->set_position(1.f * glm::vec3(glm::cos(3 * time), glm::sin(3 * time), 0.));
-		sun->set_rotation(glm::vec3(0, 0, 4 * time));
+		flat_clouds->set_rotation(glm::vec3(0, 0, 2.f * time));
+		sun->set_rotation(glm::vec3(0, 0, -0.4f * time));
 		solar_root->update();
 
-		shader.bind();
-		shader.set_uniform_mat4fv("vp", camera.get_vp());
 		for (auto it = drawables.begin(); it != drawables.end(); it++)
 		{
 			SceneElement *scene_element = dynamic_cast<SceneElement *>(it->get());
+			it->get()->get_material()->get_shader()->bind();
 			if (scene_element)
 			{
-				shader.set_uniform_mat4fv("model", (scene_element->get_model_matrix()));
+				// TODO: group by material (material instances...)
+				it->get()->get_material()->get_shader()->set_uniform_mat4fv("local_model", scene_element->get_transform().get_local_model_matrix());
+				it->get()->get_material()->get_shader()->set_uniform_mat4fv("vp", camera.get_vp());
+				it->get()->get_material()->get_shader()->set_uniform_mat4fv("model", (scene_element->get_model_matrix()));
 			}
 
 			it->get()->draw();

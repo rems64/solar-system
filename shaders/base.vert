@@ -8,6 +8,7 @@ out vec3 position;
 out vec2 uv;
 out vec3 normal;
 
+uniform mat4 local_model;
 uniform mat4 model;
 uniform mat4 vp;
 
@@ -17,5 +18,5 @@ void main()
    position = pos.xyz/pos.w;
    gl_Position = vp*pos;
    uv = in_uv;
-   normal = in_normal;
+   normal = (local_model*vec4(in_normal, 0)).xyz;
 }
