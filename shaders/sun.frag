@@ -1,15 +1,24 @@
 #version 330 core
 
-in vec3 position;
-in vec2 uv;
-in vec3 normal;
+in VS_OUT {
+   vec3 position;
+   vec3 normal;
+   vec2 uv;
+} vs_in;
+
+layout (location = 0) out vec4 gPosition;
+layout (location = 1) out vec4 gNormal;
+layout (location = 2) out vec4 gAlbedo;
+layout (location = 3) out vec4 gEmissive;
 
 uniform sampler2D tex;
 
-out vec4 color;
-
 void main()
 {
-   vec3 texCol = texture(tex, uv).rgb;
-   color = vec4(texCol, 1);
+   vec3 texture_color = texture(tex, vs_in.uv).rgb;
+   vec4 color = vec4(texture_color, 1);
+   gPosition = vec4(vs_in.position, 1);
+   gNormal = vec4(vs_in.normal, 1);
+   gAlbedo = color;
+   gEmissive = vec4(texture_color, 1);
 }

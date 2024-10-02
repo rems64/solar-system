@@ -16,6 +16,20 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 
+// clang-format off
+std::vector<float> fullscreen_rect_vertices = {
+    -1.0f, -1.0f,
+     1.0f, -1.0f,
+     1.0f,  1.0f,
+    -1.0f,  1.0f,
+};
+
+std::vector<unsigned int> fullscreen_rect_indices = {
+    0, 1, 3,
+    1, 2, 3
+};
+// clang-format on
+
 void error_callback(int error,
 					const char *description)
 {
@@ -174,10 +188,6 @@ generate_sphere(size_t rings,
 				radius,
 				M_PI * ring / rings,
 				2 * M_PI * segment / segments);
-			// uv
-			vertices.push_back((float)segment / segments);
-			vertices.push_back((float)ring / rings);
-
 			// normal
 			const size_t index = vertices.size();
 			add_float3_radius_angles(
@@ -191,6 +201,10 @@ generate_sphere(size_t rings,
 			vertices[index + 0] /= length;
 			vertices[index + 1] /= length;
 			vertices[index + 2] /= length;
+
+			// uv
+			vertices.push_back((float)segment / segments);
+			vertices.push_back((float)ring / rings);
 		}
 	}
 
@@ -277,7 +291,7 @@ constexpr GLenum get_format(const uint32_t depth)
 	default:
 		break;
 	}
-	std::cout << "WARNING unsupported format (" << depth << ")" << std::endl;
+	std::cout << "[WARNING] unsupported format (" << depth << ")" << std::endl;
 	return GL_RGBA32F;
 }
 
@@ -292,7 +306,7 @@ constexpr GLenum get_components(const uint32_t depth)
 	default:
 		break;
 	}
-	std::cout << "WARNING unsupported format (" << depth << ")" << std::endl;
+	std::cout << "[WARNING] unsupported format (" << depth << ")" << std::endl;
 	return GL_RGBA;
 }
 
@@ -336,36 +350,49 @@ public:
 	{
 		m_data = stbi_load(path, &m_width, &m_height, &m_depth, 0);
 
-		generate_texture();
+		generate_texture(GL_UNSIGNED_BYTE, get_format(m_depth));
 
 		stbi_image_free(m_data);
 	}
 
-	Texture(uint32_t width, uint32_t height, uint32_t depth) : m_resource(0), m_data(nullptr), m_width(width), m_height(height), m_depth(depth)
+	Texture(uint32_t width, uint32_t height, uint32_t depth, GLenum type, GLenum internal_format) : m_resource(0), m_data(nullptr), m_width(width), m_height(height), m_depth(depth)
 	{
-		generate_texture();
+		generate_texture(type, internal_format);
 	}
 
 	const unsigned int get_resource() { return m_resource; };
 
 	const void bind() { glBindTexture(GL_TEXTURE_2D, m_resource); }
 
-private:
-	void generate_texture()
+	void delete_texture()
 	{
+		if (!m_resource)
+		{
+			glDeleteTextures(1, &m_resource);
+			m_resource = 0;
+		}
+	}
+
+public:
+	void generate_texture(GLenum type, GLenum internal_format)
+	{
+		delete_texture();
+
 		glGenTextures(1, &m_resource);
-		glActiveTexture(GL_TEXTURE0);
+
 		glBindTexture(GL_TEXTURE_2D, m_resource);
+
+		glTexImage2D(GL_TEXTURE_2D, 0, internal_format, m_width, m_height,
+					 0, get_components(m_depth), type, m_data);
+
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexImage2D(GL_TEXTURE_2D, 0, get_format(m_depth), m_width, m_height,
-					 0, get_components(m_depth), GL_UNSIGNED_BYTE, m_data);
 
-		glBindImageTexture(0, m_resource, 0, GL_FALSE, 0, GL_READ_WRITE, get_format(m_depth));
+		// glBindImageTexture(0, m_resource, 0, GL_FALSE, 0, GL_READ_WRITE, internal_format);
 
-		glGenerateMipmap(GL_TEXTURE_2D);
+		// glGenerateMipmap(GL_TEXTURE_2D);
 	}
 
 private:
@@ -510,7 +537,7 @@ public:
 		glEnableVertexAttribArray(0);
 
 		glVertexAttribPointer(1,
-							  2,
+							  3,
 							  GL_FLOAT,
 							  GL_FALSE,
 							  8 * sizeof(float),
@@ -518,11 +545,11 @@ public:
 		glEnableVertexAttribArray(1);
 
 		glVertexAttribPointer(2,
-							  3,
+							  2,
 							  GL_FLOAT,
 							  GL_FALSE,
 							  8 * sizeof(float),
-							  (void *)(5 * sizeof(float)));
+							  (void *)(6 * sizeof(float)));
 		glEnableVertexAttribArray(2);
 
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -643,11 +670,13 @@ private:
 
 int viewport_width = 512;
 int viewport_height = 512;
+bool viewport_dirty = true;
 
 void resize_callback(GLFWwindow *window, int width, int height)
 {
 	viewport_width = width;
 	viewport_height = height;
+	viewport_dirty = true;
 	glViewport(0, 0, width, height);
 }
 
@@ -678,6 +707,75 @@ float rfloat(float min, float max)
 	return ((float)rand() / RAND_MAX) * (max - min) + min;
 }
 
+struct FramebufferAttachment
+{
+	GLenum type = GL_FLOAT;
+	uint32_t components_count = 4;
+	GLenum internal_format = GL_RGBA;
+};
+
+class Framebuffer
+{
+public:
+	Framebuffer(uint32_t width, uint32_t height, std::vector<FramebufferAttachment> attachments) : m_width(width), m_height(height), m_attachments(attachments)
+	{
+		record(width, height);
+	};
+
+	void bind()
+	{
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_framebuffer);
+	}
+
+	void record(uint32_t width, uint32_t height)
+	{
+		if (!m_framebuffer)
+			glDeleteFramebuffers(1, &m_framebuffer);
+
+		m_buffers.clear();
+
+		glGenFramebuffers(1, &m_framebuffer);
+		glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffer);
+
+		// TODO: a "default" texture is definitely not the way to do it...
+		size_t i = 0;
+		for (auto it = m_attachments.begin(); it != m_attachments.end(); it++, i++)
+		{
+			auto buffer = std::make_shared<Texture>(width, height, it->components_count, it->type, it->internal_format);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, buffer->get_resource(), 0);
+
+			m_buffers.push_back(buffer);
+		}
+
+		std::vector<unsigned int> attachments{};
+		for (size_t i = 0; i < m_attachments.size(); i++)
+		{
+			attachments.push_back(GL_COLOR_ATTACHMENT0 + i);
+		}
+		glDrawBuffers(attachments.size(), attachments.data());
+
+		unsigned int rbo_depth;
+		glGenRenderbuffers(1, &rbo_depth);
+		glBindRenderbuffer(GL_RENDERBUFFER, rbo_depth);
+		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rbo_depth);
+
+		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+			std::cout << "[WARNING] Framebuffer not complete!" << std::endl;
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	};
+
+	std::vector<std::shared_ptr<Texture>> &get_buffers() { return m_buffers; };
+
+private:
+	uint32_t m_width;
+	uint32_t m_height;
+	std::vector<FramebufferAttachment> m_attachments;
+	std::vector<std::shared_ptr<Texture>> m_buffers;
+
+	unsigned int m_framebuffer;
+};
+
 int main()
 {
 	GLFWwindow *window;
@@ -689,6 +787,14 @@ int main()
 
 	std::vector<std::shared_ptr<Drawable>> drawables;
 
+	std::vector<FramebufferAttachment> attachments = {
+		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F},		// position (4 for alignment)
+		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F},		// normal (4 for alignment)
+		FramebufferAttachment{.type = GL_UNSIGNED_BYTE, .components_count = 4, .internal_format = GL_RGBA}, // color + specular
+		FramebufferAttachment{.type = GL_UNSIGNED_BYTE, .components_count = 4, .internal_format = GL_RGBA}, // emissive (4 for alignment)
+	};
+	auto g_buffer = std::make_shared<Framebuffer>(viewport_width, viewport_height, attachments);
+
 	auto solar_root = std::make_shared<SceneElement>();
 
 	auto sun_texture = std::make_shared<Texture>("textures/2k_sun.jpg");
@@ -696,14 +802,14 @@ int main()
 	auto moon_texture = std::make_shared<Texture>("textures/2k_moon.jpg");
 	auto flat_clouds_texture = std::make_shared<Texture>("textures/2k_earth_clouds.jpg");
 
+	auto simple_texture_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/textured.frag");
+	auto simple_transparent_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/textured_transparent.frag");
 	auto sun_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/sun.frag");
-	auto planet_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/planet.frag");
-	auto flat_clouds_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/flat_clouds.frag");
 
 	auto sun_material = std::make_shared<Material>(sun_shader, std::vector{sun_texture});
-	auto earth_material = std::make_shared<Material>(planet_shader, std::vector{earth_texture});
-	auto flat_clouds_material = std::make_shared<Material>(flat_clouds_shader, std::vector{flat_clouds_texture});
-	auto moon_material = std::make_shared<Material>(planet_shader, std::vector{moon_texture});
+	auto earth_material = std::make_shared<Material>(simple_texture_shader, std::vector{earth_texture});
+	auto flat_clouds_material = std::make_shared<Material>(simple_transparent_shader, std::vector{flat_clouds_texture});
+	auto moon_material = std::make_shared<Material>(simple_texture_shader, std::vector{moon_texture});
 
 	auto sun = std::make_shared<Sphere>(20, 40, 1.0f, sun_material);
 	auto earth = std::make_shared<Sphere>(20, 40, 0.5f, earth_material);
@@ -731,19 +837,44 @@ int main()
 	camera.look_at(glm::vec3(0., 0., 0.));
 	camera.update_vp();
 
-	glEnable(GL_CULL_FACE);
-	glEnable(GL_DEPTH_TEST);
-
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	earth_material->get_shader()->set_uniform_int("tex", 0);
 
+	// Deferred shading
+	auto deferred_shader_program = std::make_shared<Shader>("shaders/deferred.vert", "shaders/deferred.frag");
+	unsigned int fullscreen_vao, fullscreen_vbo, fullscreen_ebo;
+	glGenVertexArrays(1, &fullscreen_vao);
+	glGenBuffers(1, &fullscreen_vbo);
+	glGenBuffers(1, &fullscreen_ebo);
+	glBindVertexArray(fullscreen_vao);
+	// VBO
+	glBindBuffer(GL_ARRAY_BUFFER, fullscreen_vbo);
+	glBufferData(GL_ARRAY_BUFFER, fullscreen_rect_vertices.size() * sizeof(float), fullscreen_rect_vertices.data(), GL_STATIC_DRAW);
+	// EBO
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, fullscreen_ebo);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, fullscreen_rect_indices.size() * sizeof(unsigned int), fullscreen_rect_indices.data(), GL_STATIC_DRAW);
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void *)0);
+	glEnableVertexAttribArray(0);
+
 	double start_time = glfwGetTime();
 	while (!glfwWindowShouldClose(window))
 	{
 		double time = glfwGetTime() - start_time;
+
+		g_buffer->bind();
+
+		glEnable(GL_DEPTH_TEST);
+		// glEnable(GL_CULL_FACE);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glViewport(0, 0, viewport_width, viewport_height);
+
+		if (viewport_dirty)
+		{
+			g_buffer->record(viewport_width, viewport_height);
+			viewport_dirty = false;
+		}
 
 		camera.set_aspect((float)viewport_width / viewport_height);
 		// camera.set_position(5.f * glm::vec3(glm::cos(time), glm::sin(time), 0.3));
@@ -770,6 +901,29 @@ int main()
 
 			it->get()->draw();
 		}
+
+		// Deferred
+		glDisable(GL_DEPTH_TEST);
+		glDisable(GL_CULL_FACE);
+
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glViewport(0, 0, viewport_width, viewport_height);
+
+		size_t i = 0;
+		auto buffers = g_buffer->get_buffers();
+		for (auto it = buffers.begin(); it != buffers.end(); it++, i++)
+		{
+			glActiveTexture(GL_TEXTURE0 + i);
+			it->get()->bind();
+		}
+
+		deferred_shader_program->bind();
+
+		glBindVertexArray(fullscreen_vao);
+		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 		glfwSwapBuffers(window);
 		glfwPollEvents();
