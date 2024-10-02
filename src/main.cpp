@@ -815,7 +815,7 @@ int main()
 
 	Camera camera(60.f, (float)viewport_width / (float)viewport_height, 0.1f, 100.f);
 
-	camera.set_position(glm::vec3(0., -7., 0.));
+	camera.set_position(glm::vec3(0., -7., 5.));
 	camera.look_at(glm::vec3(0., 0., 0.));
 	camera.update_vp();
 
@@ -859,8 +859,6 @@ int main()
 		}
 
 		camera.set_aspect((float)viewport_width / viewport_height);
-		// camera.set_position(5.f * glm::vec3(glm::cos(time), glm::sin(time), 0.3));
-		// camera.look_at(glm::vec3(0, 0, 0));
 		camera.update_vp();
 
 		earth->set_position(4.f * glm::vec3(glm::cos(time), glm::sin(time), 0.));

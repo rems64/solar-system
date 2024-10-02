@@ -16,10 +16,11 @@ uniform mat4 vp;
 
 void main()
 {
-   vec4 position = vp * model * vec4(in_position, 1);
-   gl_Position = position;
+   vec4 position = model * vec4(in_position, 1);
+   gl_Position = vp * position;
 
    vs_out.position = position.xyz/position.w;
-   vs_out.normal = (local_model * vec4(in_normal, 0)).xyz;
+   mat3 normal_matrix = transpose(inverse(mat3(model)));
+   vs_out.normal = normal_matrix * in_normal;
    vs_out.uv = in_uv;
 }
