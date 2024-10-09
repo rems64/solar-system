@@ -1,18 +1,28 @@
-all: bin/main
-
-CXX = g++
 CXXFLAGS = -g
 GLFLAGS = -lglfw -lGL
 
-bin/% : src/%.cpp lib/glad.o
-	$(CXX) src/$*.cpp lib/glad.o $(GLFLAGS) $(CXXFLAGS) -I include/ -o $@
+SHADERS_PREFIX = bin/shaders/
+SHADERS_NAMES = atmosphere.frag base.vert deferred.vert deferred.frag flat_clouds.frag sun.frag textured_transparent.frag textured.frag
+SHADERS = $(addprefix $(SHADERS_PREFIX),$(SHADERS_NAMES))
+
+all: bin/main
+
+.SECONDEXPANSION:
+bin/main : src/main.cpp lib/glad.o $$(SHADERS)
+	@echo $(SHADERS)
+	$(CXX) src/main.cpp lib/glad.o $(GLFLAGS) $(CXXFLAGS) -I include/ -o $@
 
 lib/glad.o : src/glad.c
-	g++ src/glad.c -I include/ -c -o lib/glad.o
+	$(CXX) src/glad.c -I include/ -c -o lib/glad.o
 
-# sphere_shader:
-# 	cp shaders/sphere.vert bin/shaders/sphere.vert
-# 	cp shaders/sphere.frag bin/shaders/sphere.frag
+bin/shaders/%.vert: shaders/%.vert
+	cp shaders/$*.vert bin/shaders/$*.vert
+
+bin/shaders/%.frag: shaders/%.frag
+	cp shaders/$*.frag bin/shaders/$*.frag
 
 run: bin/main
 	./bin/main
+
+clean::
+	@rm -rf bin
