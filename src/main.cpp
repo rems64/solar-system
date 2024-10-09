@@ -314,9 +314,25 @@ public:
 			glm::value_ptr(matrix));
 	}
 
-	void set_uniform_int(const char *name, const float &value)
+	void set_uniform_vec2fv(const char *name, const glm::vec2 &vec)
 	{
-		glUniform1f(
+		glUniform2fv(
+			glGetUniformLocation(m_program, name),
+			1,
+			glm::value_ptr(vec));
+	}
+
+	void set_uniform_vec3fv(const char *name, const glm::vec3 &vec)
+	{
+		glUniform3fv(
+			glGetUniformLocation(m_program, name),
+			1,
+			glm::value_ptr(vec));
+	}
+
+	void set_uniform_int(const char *name, const unsigned int &value)
+	{
+		glUniform1i(
 			glGetUniformLocation(m_program, name),
 			value);
 	}
@@ -397,6 +413,7 @@ public:
 		for (auto it = m_textures.begin(); it != m_textures.end(); it++, i++)
 		{
 			glActiveTexture(GL_TEXTURE0 + i);
+			// std::cout << "active texture " << i << " (" << it->get()->get_resource() << ")" << std::endl;
 			it->get()->bind();
 		}
 	}
@@ -555,14 +572,19 @@ protected:
 class Sphere : public Mesh
 {
 public:
-	Sphere(size_t rings, size_t segments, float radius, std::shared_ptr<Material> material) : Mesh(material)
+	Sphere(size_t rings, size_t segments, float radius, std::shared_ptr<Material> material, bool inverse_normals = false) : Mesh(material), m_radius(radius)
 	{
-		auto [vertices, indices] = generate_sphere(rings, segments, radius);
+		auto [vertices, indices] = generate_sphere(rings, segments, radius, inverse_normals);
 		m_vertices = std::move(vertices);
 		m_indices = std::move(indices);
 
 		build_vao(m_vertices, m_indices);
 	}
+
+	constexpr float radius() const { return m_radius; }
+
+private:
+	float m_radius;
 };
 
 class ComputeShader
@@ -772,46 +794,52 @@ int main()
 	std::vector<std::shared_ptr<Drawable>> drawables;
 
 	std::vector<FramebufferAttachment> attachments = {
-		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F},		// position (4 for alignment)
-		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F},		// normal (4 for alignment)
-		FramebufferAttachment{.type = GL_UNSIGNED_BYTE, .components_count = 4, .internal_format = GL_RGBA}, // color + specular
-		FramebufferAttachment{.type = GL_UNSIGNED_BYTE, .components_count = 4, .internal_format = GL_RGBA}, // emissive (4 for alignment)
+		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // color (HDR)
+		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // position (4 for alignment)
+		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // normal (4 for alignment)
+		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // metallic + roughness + emissiveness
 	};
 	auto g_buffer = std::make_shared<Framebuffer>(viewport_width, viewport_height, attachments);
+
+	std::vector<FramebufferAttachment> atmosphere_attachments = {
+		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // color (4 for alignment)
+	};
+	auto atmosphere_framebuffer = std::make_shared<Framebuffer>(viewport_width, viewport_height, atmosphere_attachments);
 
 	auto solar_root = std::make_shared<SceneElement>();
 
 	auto sun_texture = std::make_shared<Texture>("textures/2k_sun.jpg");
 	auto earth_texture = std::make_shared<Texture>("textures/2k_earth_daymap.jpg");
+	auto earth_normal_texture = std::make_shared<Texture>("textures/2k_earth_normal_map.png");
+	auto earth_specular_texture = std::make_shared<Texture>("textures/2k_earth_specular_map.png");
 	auto moon_texture = std::make_shared<Texture>("textures/2k_moon.jpg");
-	auto flat_clouds_texture = std::make_shared<Texture>("textures/2k_earth_clouds.jpg");
-	
+
 	// auto grid_texture = std::make_shared<Texture>("textures/2k_sun.jpg");
 	auto grid_texture = std::make_shared<Texture>("textures/2k_stars.jpg");
 
 	auto simple_texture_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/textured.frag");
-	auto simple_transparent_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/textured_transparent.frag");
 	auto sun_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/sun.frag");
+	auto atmosphere_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/atmosphere.frag");
 
-	auto sun_material = std::make_shared<Material>(sun_shader, std::vector{sun_texture});
-	auto earth_material = std::make_shared<Material>(simple_texture_shader, std::vector{earth_texture});
-	auto flat_clouds_material = std::make_shared<Material>(simple_transparent_shader, std::vector{flat_clouds_texture});
-	auto moon_material = std::make_shared<Material>(simple_texture_shader, std::vector{moon_texture});
+	auto sun_material = std::make_shared<Material>(sun_shader, std::vector<std::shared_ptr<Texture>>{sun_texture});
+	auto earth_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{earth_texture, earth_normal_texture, earth_specular_texture});
+	auto moon_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{moon_texture});
+	auto atmosphere_material = std::make_shared<Material>(atmosphere_shader, std::vector<std::shared_ptr<Texture>>{});
 
 	auto sun = std::make_shared<Sphere>(20, 40, 1.0f, sun_material);
 	auto earth = std::make_shared<Sphere>(20, 40, 0.5f, earth_material);
-	auto flat_clouds = std::make_shared<Sphere>(20, 40, 0.55f, flat_clouds_material);
 	auto moon = std::make_shared<Sphere>(20, 40, 0.1f, moon_material);
+
+	auto atmosphere = std::make_shared<Sphere>(20, 40, earth->radius() * 1.2f, atmosphere_material, true);
 
 	drawables.push_back(sun);
 	drawables.push_back(earth);
-	drawables.push_back(flat_clouds);
 	drawables.push_back(moon);
 
 	moon->set_parent(earth.get());
 	earth->set_parent(solar_root.get());
 	sun->set_parent(solar_root.get());
-	flat_clouds->set_parent(earth.get());
+	atmosphere->set_parent(earth.get());
 
 	earth->set_position(glm::vec3(4., 0., 0.));
 	moon->set_position(glm::vec3(2., 0., 0.));
@@ -825,14 +853,20 @@ int main()
 	camera.update();
 
 	glEnable(GL_BLEND);
-	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_DST_ALPHA);
+	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+
+	// glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	// glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	// glBlendFunc(GL_DST_ALPHA, GL_MIN);
 	// glBlendFunc(GL_SRC_ALPHA, GL_MIN);
 	// glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	// glBlendFunc(GL_SRC_ALPHA, GL_SRC_ALPHA_SATURATE);
 
-	earth_material->get_shader()->set_uniform_int("tex", 0);
+	simple_texture_shader->bind();
+	simple_texture_shader->set_uniform_int("s_albedo", 0);
+	simple_texture_shader->set_uniform_int("s_normal", 1);
+	simple_texture_shader->set_uniform_int("s_specular", 2);
+	simple_texture_shader->set_uniform_vec3fv("tint", glm::vec3(1, 0.5, 0.5));
 
 	// Deferred shading
 	auto deferred_shader_program = std::make_shared<Shader>("shaders/deferred.vert", "shaders/deferred.frag");
@@ -865,25 +899,29 @@ int main()
 		if (viewport_dirty)
 		{
 			g_buffer->record(viewport_width, viewport_height);
+			atmosphere_framebuffer->record(viewport_width, viewport_height);
 			viewport_dirty = false;
 		}
 
 		// camera.set_position(8.f * glm::vec3(glm::cos(0.1*time), glm::sin(0.1*time), 0.15));
-		camera.set_position(8.f * glm::vec3(0.2, glm::sin(0.1*time), glm::cos(0.1*time)));
+		camera.set_position(8.f * glm::vec3(0.2, glm::sin(0.1 * time), glm::cos(0.1 * time)));
 		camera.look_at(glm::vec3(0, 0, 0));
 		camera.set_aspect((float)viewport_width / viewport_height);
 		camera.update();
 
 		earth->set_position(4.f * glm::vec3(glm::cos(time), glm::sin(time), 0.));
 		moon->set_position(1.f * glm::vec3(glm::cos(3 * time), glm::sin(3 * time), 0.));
-		flat_clouds->set_rotation(glm::vec3(0, 0, 2.f * time));
 		sun->set_rotation(glm::vec3(0, 0, -0.4f * time));
 		solar_root->update();
 
 		for (auto it = drawables.begin(); it != drawables.end(); it++)
 		{
 			SceneElement *scene_element = dynamic_cast<SceneElement *>(it->get());
-			it->get()->get_material()->get_shader()->bind();
+			it->get()->get_material()->bind();
+			// glActiveTexture(GL_TEXTURE0);
+			// earth_texture->bind();
+			// glActiveTexture(GL_TEXTURE2);
+			// earth_specular_texture->bind();
 			if (scene_element)
 			{
 				// TODO: group by material (material instances...)
@@ -896,11 +934,10 @@ int main()
 		}
 
 		// Deferred
+		atmosphere_framebuffer->bind();
+
 		glDisable(GL_DEPTH_TEST);
 		glDisable(GL_CULL_FACE);
-
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glViewport(0, 0, viewport_width, viewport_height);
 
@@ -912,8 +949,26 @@ int main()
 			it->get()->bind();
 		}
 
+		// Atmosphere
+		atmosphere_material->bind();
+		atmosphere_material->get_shader()->set_uniform_mat4fv("local_model", atmosphere->get_transform().get_local_model_matrix());
+		atmosphere_material->get_shader()->set_uniform_mat4fv("vp", camera.get_vp());
+		atmosphere_material->get_shader()->set_uniform_mat4fv("model", (atmosphere->get_model_matrix()));
+		atmosphere_material->get_shader()->set_uniform_vec2fv("viewport_size", glm::vec2(viewport_width, viewport_height));
+		atmosphere->draw();
+
+		// Final pass
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glViewport(0, 0, viewport_width, viewport_height);
+
 		glActiveTexture(GL_TEXTURE4);
 		grid_texture->bind();
+
+		auto atmosphere_buffers = atmosphere_framebuffer->get_buffers();
+		glActiveTexture(GL_TEXTURE5);
+		atmosphere_buffers[0]->bind();
 
 		deferred_shader_program->bind();
 		deferred_shader_program->set_uniform_mat4fv("view_projection", camera.get_vp());
