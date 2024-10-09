@@ -1,7 +1,13 @@
-main: glad
-	g++ src/main.cpp lib/glad.o -lglfw -lGL -g -I include/ -o bin/main
+all: bin/main
 
-glad:
+CXX = g++
+CXXFLAGS = -g
+GLFLAGS = -lglfw -lGL
+
+bin/% : src/%.cpp lib/glad.o
+	$(CXX) src/$*.cpp lib/glad.o $(GLFLAGS) $(CXXFLAGS) -I include/ -o $@
+
+lib/glad.o : src/glad.c
 	g++ src/glad.c -I include/ -c -o lib/glad.o
 
 # sphere_shader:

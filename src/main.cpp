@@ -207,7 +207,7 @@ generate_sphere(size_t rings,
 		}
 	}
 
-	for (size_t ring = 0; ring < (rings - 1); ring++)
+	for (size_t ring = 0; ring <= (rings - 1); ring++)
 	{
 		for (size_t segment = 0; segment < segments; segment++)
 		{
@@ -372,9 +372,9 @@ public:
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 
-		// glBindImageTexture(0, m_resource, 0, GL_FALSE, 0, GL_READ_WRITE, internal_format);
+		glBindImageTexture(0, m_resource, 0, GL_FALSE, 0, GL_READ_WRITE, internal_format);
 
-		// glGenerateMipmap(GL_TEXTURE_2D);
+		glGenerateMipmap(GL_TEXTURE_2D);
 	}
 
 private:
@@ -594,7 +594,8 @@ private:
 class Camera : public SceneElement
 {
 public:
-	Camera(float fovy, float aspect, float near, float far) : m_view(glm::mat4(1.)),
+	Camera(float fovy, float aspect, float near, float far) : m_target(glm::vec3(0)),
+															  m_view(glm::mat4(1.)),
 															  m_projection(glm::mat4(1.)),
 															  m_vp(glm::mat4(1.)),
 															  m_fovy(fovy),
@@ -606,17 +607,21 @@ public:
 	void set_position(glm::vec3 position)
 	{
 		SceneElement::set_position(position);
-		update_vp();
 	}
 
 	void set_aspect(float aspect)
 	{
 		m_aspect = aspect;
-		update_vp();
 	}
 
-	void update_vp()
+	void update()
 	{
+		SceneElement::update();
+
+		m_view = glm::lookAt(
+			m_transform.position,
+			m_target,
+			glm::vec3(0, 0, 1));
 		m_projection = glm::perspective(
 			m_fovy / 180.f * glm::pi<float>(),
 			m_aspect,
@@ -627,11 +632,7 @@ public:
 
 	void look_at(glm::vec3 target)
 	{
-		m_view = glm::lookAt(
-			m_transform.position,
-			target,
-			glm::vec3(0, 0, 1));
-		update_vp();
+		m_target = target;
 	}
 
 	glm::mat4 &get_vp()
@@ -645,6 +646,7 @@ private:
 	float m_near;
 	float m_far;
 
+	glm::vec3 m_target;
 	glm::mat4 m_view;
 	glm::mat4 m_projection;
 	glm::mat4 m_vp;
@@ -783,6 +785,9 @@ int main()
 	auto earth_texture = std::make_shared<Texture>("textures/2k_earth_daymap.jpg");
 	auto moon_texture = std::make_shared<Texture>("textures/2k_moon.jpg");
 	auto flat_clouds_texture = std::make_shared<Texture>("textures/2k_earth_clouds.jpg");
+	
+	// auto grid_texture = std::make_shared<Texture>("textures/2k_sun.jpg");
+	auto grid_texture = std::make_shared<Texture>("textures/2k_stars.jpg");
 
 	auto simple_texture_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/textured.frag");
 	auto simple_transparent_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/textured_transparent.frag");
@@ -815,12 +820,17 @@ int main()
 
 	Camera camera(60.f, (float)viewport_width / (float)viewport_height, 0.1f, 100.f);
 
-	camera.set_position(glm::vec3(0., -7., 5.));
+	camera.set_position(glm::vec3(0., -7., 0.));
 	camera.look_at(glm::vec3(0., 0., 0.));
-	camera.update_vp();
+	camera.update();
 
 	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_DST_ALPHA);
+	// glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	// glBlendFunc(GL_DST_ALPHA, GL_MIN);
+	// glBlendFunc(GL_SRC_ALPHA, GL_MIN);
+	// glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	// glBlendFunc(GL_SRC_ALPHA, GL_SRC_ALPHA_SATURATE);
 
 	earth_material->get_shader()->set_uniform_int("tex", 0);
 
@@ -858,8 +868,11 @@ int main()
 			viewport_dirty = false;
 		}
 
+		// camera.set_position(8.f * glm::vec3(glm::cos(0.1*time), glm::sin(0.1*time), 0.15));
+		camera.set_position(8.f * glm::vec3(0.2, glm::sin(0.1*time), glm::cos(0.1*time)));
+		camera.look_at(glm::vec3(0, 0, 0));
 		camera.set_aspect((float)viewport_width / viewport_height);
-		camera.update_vp();
+		camera.update();
 
 		earth->set_position(4.f * glm::vec3(glm::cos(time), glm::sin(time), 0.));
 		moon->set_position(1.f * glm::vec3(glm::cos(3 * time), glm::sin(3 * time), 0.));
@@ -899,7 +912,11 @@ int main()
 			it->get()->bind();
 		}
 
+		glActiveTexture(GL_TEXTURE4);
+		grid_texture->bind();
+
 		deferred_shader_program->bind();
+		deferred_shader_program->set_uniform_mat4fv("view_projection", camera.get_vp());
 
 		glBindVertexArray(fullscreen_vao);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
