@@ -159,6 +159,11 @@ void create_compute_shader(const char *compute_path,
 	glDeleteShader(compute_shader);
 }
 
+float rfloat(float min, float max)
+{
+	return ((float)rand() / RAND_MAX) * (max - min) + min;
+}
+
 std::pair<std::vector<float>, std::vector<unsigned int>>
 generate_sphere(size_t rings,
 				size_t segments,
@@ -184,9 +189,16 @@ generate_sphere(size_t rings,
 			// position
 			add_float3_radius_angles(
 				vertices,
+				// radius * rfloat(0.98f, 1.02f),
 				radius,
 				M_PI * ring / rings,
 				2 * M_PI * segment / segments);
+			// if (segment == segments)
+			// {
+			// 	vertices[vertices.size() - 0] = vertices[vertices.size() - 8 * (segments - 1) - 0];
+			// 	vertices[vertices.size() - 1] = vertices[vertices.size() - 8 * (segments - 1) - 1];
+			// 	vertices[vertices.size() - 2] = vertices[vertices.size() - 8 * (segments - 1) - 2];
+			// }
 			// normal
 			const size_t index = vertices.size();
 			add_float3_radius_angles(
@@ -330,6 +342,13 @@ public:
 			glm::value_ptr(vec));
 	}
 
+	void set_uniform_float(const char *name, const float &value)
+	{
+		glUniform1f(
+			glGetUniformLocation(m_program, name),
+			value);
+	}
+
 	void set_uniform_int(const char *name, const unsigned int &value)
 	{
 		glUniform1i(
@@ -353,9 +372,9 @@ public:
 		stbi_image_free(m_data);
 	}
 
-	Texture(uint32_t width, uint32_t height, uint32_t depth, GLenum type, GLenum internal_format) : m_resource(0), m_data(nullptr), m_width(width), m_height(height), m_depth(depth)
+	Texture(uint32_t width, uint32_t height, uint32_t depth, GLenum type, GLenum internal_format, bool mipmaps=true) : m_resource(0), m_data(nullptr), m_width(width), m_height(height), m_depth(depth)
 	{
-		generate_texture(type, internal_format);
+		generate_texture(type, internal_format, mipmaps);
 	}
 
 	const unsigned int get_resource() { return m_resource; };
@@ -372,7 +391,7 @@ public:
 	}
 
 public:
-	void generate_texture(GLenum type, GLenum internal_format)
+	void generate_texture(GLenum type, GLenum internal_format, bool mipmaps=true)
 	{
 		delete_texture();
 
@@ -708,11 +727,6 @@ void setup(GLFWwindow *&window)
 	glfwSetWindowSizeCallback(window, resize_callback);
 }
 
-float rfloat(float min, float max)
-{
-	return ((float)rand() / RAND_MAX) * (max - min) + min;
-}
-
 struct FramebufferAttachment
 {
 	GLenum type = GL_FLOAT;
@@ -747,7 +761,7 @@ public:
 		size_t i = 0;
 		for (auto it = m_attachments.begin(); it != m_attachments.end(); it++, i++)
 		{
-			auto buffer = std::make_shared<Texture>(width, height, it->components_count, it->type, it->internal_format);
+			auto buffer = std::make_shared<Texture>(width, height, it->components_count, it->type, it->internal_format, false);
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, buffer->get_resource(), 0);
 
 			m_buffers.push_back(buffer);
@@ -760,11 +774,10 @@ public:
 		}
 		glDrawBuffers(attachments.size(), attachments.data());
 
-		unsigned int rbo_depth;
-		glGenRenderbuffers(1, &rbo_depth);
-		glBindRenderbuffer(GL_RENDERBUFFER, rbo_depth);
+		glGenRenderbuffers(1, &m_depth);
+		glBindRenderbuffer(GL_RENDERBUFFER, m_depth);
 		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
-		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rbo_depth);
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_depth);
 
 		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
 			std::cout << "[WARNING] Framebuffer not complete!" << std::endl;
@@ -776,6 +789,7 @@ public:
 private:
 	uint32_t m_width;
 	uint32_t m_height;
+	uint32_t m_depth;
 	std::vector<FramebufferAttachment> m_attachments;
 	std::vector<std::shared_ptr<Texture>> m_buffers;
 
@@ -793,18 +807,17 @@ int main()
 
 	std::vector<std::shared_ptr<Drawable>> drawables;
 
-	std::vector<FramebufferAttachment> attachments = {
+	std::vector<FramebufferAttachment> gbuffer_attachments = {
 		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // color (HDR)
 		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // position (4 for alignment)
 		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // normal (4 for alignment)
 		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // metallic + roughness + emissiveness
 	};
-	auto g_buffer = std::make_shared<Framebuffer>(viewport_width, viewport_height, attachments);
+	auto g_buffer = std::make_shared<Framebuffer>(viewport_width, viewport_height, gbuffer_attachments);
 
-	std::vector<FramebufferAttachment> atmosphere_attachments = {
-		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // color (4 for alignment)
-	};
-	auto atmosphere_framebuffer = std::make_shared<Framebuffer>(viewport_width, viewport_height, atmosphere_attachments);
+	auto shading_framebuffer = std::make_shared<Framebuffer>(viewport_width, viewport_height, gbuffer_attachments);
+
+	auto composite_framebuffer = std::make_shared<Framebuffer>(viewport_width, viewport_height, gbuffer_attachments);
 
 	auto solar_root = std::make_shared<SceneElement>();
 
@@ -814,12 +827,12 @@ int main()
 	auto earth_specular_texture = std::make_shared<Texture>("textures/2k_earth_specular_map.png");
 	auto moon_texture = std::make_shared<Texture>("textures/2k_moon.jpg");
 
-	// auto grid_texture = std::make_shared<Texture>("textures/2k_sun.jpg");
-	auto grid_texture = std::make_shared<Texture>("textures/2k_stars.jpg");
+	// auto stars_texture = std::make_shared<Texture>("textures/2k_sun.jpg");
+	auto stars_texture = std::make_shared<Texture>("textures/2k_stars.jpg");
 
 	auto simple_texture_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/textured.frag");
 	auto sun_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/sun.frag");
-	auto atmosphere_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/atmosphere.frag");
+	auto atmosphere_shader = std::make_shared<Shader>("shaders/compositing.vert", "shaders/atmosphere.frag");
 
 	auto sun_material = std::make_shared<Material>(sun_shader, std::vector<std::shared_ptr<Texture>>{sun_texture});
 	auto earth_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{earth_texture, earth_normal_texture, earth_specular_texture});
@@ -830,7 +843,7 @@ int main()
 	auto earth = std::make_shared<Sphere>(20, 40, 0.5f, earth_material);
 	auto moon = std::make_shared<Sphere>(20, 40, 0.1f, moon_material);
 
-	auto atmosphere = std::make_shared<Sphere>(20, 40, earth->radius() * 1.2f, atmosphere_material, true);
+	// auto atmosphere = std::make_shared<Sphere>(20, 40, earth->radius() * 1.5f, atmosphere_material, true);
 
 	drawables.push_back(sun);
 	drawables.push_back(earth);
@@ -839,7 +852,7 @@ int main()
 	moon->set_parent(earth.get());
 	earth->set_parent(solar_root.get());
 	sun->set_parent(solar_root.get());
-	atmosphere->set_parent(earth.get());
+	// atmosphere->set_parent(earth.get());
 
 	earth->set_position(glm::vec3(4., 0., 0.));
 	moon->set_position(glm::vec3(2., 0., 0.));
@@ -848,12 +861,13 @@ int main()
 
 	Camera camera(60.f, (float)viewport_width / (float)viewport_height, 0.1f, 100.f);
 
-	camera.set_position(glm::vec3(0., -7., 0.));
+	camera.set_position(glm::vec3(1., -5, 5));
 	camera.look_at(glm::vec3(0., 0., 0.));
 	camera.update();
 
 	glEnable(GL_BLEND);
-	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	// glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
 
 	// glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	// glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -869,7 +883,8 @@ int main()
 	simple_texture_shader->set_uniform_vec3fv("tint", glm::vec3(1, 0.5, 0.5));
 
 	// Deferred shading
-	auto deferred_shader_program = std::make_shared<Shader>("shaders/deferred.vert", "shaders/deferred.frag");
+	auto shading_shader = std::make_shared<Shader>("shaders/shading.vert", "shaders/shading.frag");
+	auto compositing_shader = std::make_shared<Shader>("shaders/compositing.vert", "shaders/compositing.frag");
 	unsigned int fullscreen_vao, fullscreen_vbo, fullscreen_ebo;
 	glGenVertexArrays(1, &fullscreen_vao);
 	glGenBuffers(1, &fullscreen_vbo);
@@ -899,13 +914,11 @@ int main()
 		if (viewport_dirty)
 		{
 			g_buffer->record(viewport_width, viewport_height);
-			atmosphere_framebuffer->record(viewport_width, viewport_height);
+			composite_framebuffer->record(viewport_width, viewport_height);
+			shading_framebuffer->record(viewport_width, viewport_height);
 			viewport_dirty = false;
 		}
 
-		// camera.set_position(8.f * glm::vec3(glm::cos(0.1*time), glm::sin(0.1*time), 0.15));
-		camera.set_position(8.f * glm::vec3(0.2, glm::sin(0.1 * time), glm::cos(0.1 * time)));
-		camera.look_at(glm::vec3(0, 0, 0));
 		camera.set_aspect((float)viewport_width / viewport_height);
 		camera.update();
 
@@ -918,10 +931,6 @@ int main()
 		{
 			SceneElement *scene_element = dynamic_cast<SceneElement *>(it->get());
 			it->get()->get_material()->bind();
-			// glActiveTexture(GL_TEXTURE0);
-			// earth_texture->bind();
-			// glActiveTexture(GL_TEXTURE2);
-			// earth_specular_texture->bind();
 			if (scene_element)
 			{
 				// TODO: group by material (material instances...)
@@ -933,14 +942,13 @@ int main()
 			it->get()->draw();
 		}
 
-		// Deferred
-		atmosphere_framebuffer->bind();
-
 		glDisable(GL_DEPTH_TEST);
 		glDisable(GL_CULL_FACE);
+
+		// Shading
+		shading_framebuffer->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glViewport(0, 0, viewport_width, viewport_height);
-
 		size_t i = 0;
 		auto buffers = g_buffer->get_buffers();
 		for (auto it = buffers.begin(); it != buffers.end(); it++, i++)
@@ -948,35 +956,68 @@ int main()
 			glActiveTexture(GL_TEXTURE0 + i);
 			it->get()->bind();
 		}
+		shading_shader->bind();
+		glBindVertexArray(fullscreen_vao);
+		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
-		// Atmosphere
-		atmosphere_material->bind();
-		atmosphere_material->get_shader()->set_uniform_mat4fv("local_model", atmosphere->get_transform().get_local_model_matrix());
-		atmosphere_material->get_shader()->set_uniform_mat4fv("vp", camera.get_vp());
-		atmosphere_material->get_shader()->set_uniform_mat4fv("model", (atmosphere->get_model_matrix()));
-		atmosphere_material->get_shader()->set_uniform_vec2fv("viewport_size", glm::vec2(viewport_width, viewport_height));
-		atmosphere->draw();
-
-		// Final pass
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-
+		// Compositing
+		composite_framebuffer->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glViewport(0, 0, viewport_width, viewport_height);
 
+		i = 0;
+		buffers = shading_framebuffer->get_buffers();
+		for (auto it = buffers.begin(); it != buffers.end(); it++, i++)
+		{
+			glActiveTexture(GL_TEXTURE0 + i);
+			it->get()->bind();
+		}
+
 		glActiveTexture(GL_TEXTURE4);
-		grid_texture->bind();
+		stars_texture->bind();
 
-		auto atmosphere_buffers = atmosphere_framebuffer->get_buffers();
-		glActiveTexture(GL_TEXTURE5);
-		atmosphere_buffers[0]->bind();
-
-		deferred_shader_program->bind();
-		deferred_shader_program->set_uniform_mat4fv("view_projection", camera.get_vp());
+		compositing_shader->bind();
+		compositing_shader->set_uniform_mat4fv("view_projection", camera.get_vp());
 
 		glBindVertexArray(fullscreen_vao);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+		// Atmosphere
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glViewport(0, 0, viewport_width, viewport_height);
+		i = 0;
+		buffers = composite_framebuffer->get_buffers();
+		for (auto it = buffers.begin(); it != buffers.end(); it++, i++)
+		{
+			glActiveTexture(GL_TEXTURE0 + i);
+			it->get()->bind();
+		}
+
+		atmosphere_material->bind();
+		// atmosphere_material->get_shader()->set_uniform_mat4fv("vp", camera.get_vp());
+		// atmosphere_material->get_shader()->set_uniform_mat4fv("model", (atmosphere->get_model_matrix()));
+
+		atmosphere_material->get_shader()->set_uniform_mat4fv("inv_vp", glm::inverse(camera.get_vp()));
+		atmosphere_material->get_shader()->set_uniform_vec2fv("viewport_size", glm::vec2(viewport_width, viewport_height));
+		atmosphere_material->get_shader()->set_uniform_vec3fv("camera_position", camera.get_position());
+		atmosphere_material->get_shader()->set_uniform_vec3fv("atmosphere_center", glm::vec3(earth->get_model_matrix() * glm::vec4(0, 0, 0, 1)));
+		// atmosphere_material->get_shader()->set_uniform_float("atmosphere_radius", atmosphere->radius());
+		atmosphere_material->get_shader()->set_uniform_float("atmosphere_radius", earth->radius() * 1.15f);
+		atmosphere_material->get_shader()->set_uniform_float("planet_radius", earth->radius());
+
+		const glm::vec3 wavelengths = glm::vec3(700, 530, 440);
+		float scattering_strength = 20.f;
+		float scatter_r = pow(400 / wavelengths.x, 4) * scattering_strength;
+		float scatter_g = pow(400 / wavelengths.y, 4) * scattering_strength;
+		float scatter_b = pow(400 / wavelengths.z, 4) * scattering_strength;
+		atmosphere_material->get_shader()->set_uniform_vec3fv("scattering_coefficients", glm::vec3(scatter_r, scatter_g, scatter_b));
+
+		// atmosphere->draw();
+		glBindVertexArray(fullscreen_vao);
+		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}

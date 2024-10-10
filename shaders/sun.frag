@@ -20,7 +20,7 @@ void main()
    vec4 color = vec4(texture_color, 1);
    gPosition = vec4(vs_in.position, 1);
    gNormal = vec4(vs_in.normal, 1);
-   gAlbedo = 2*color;
+   gAlbedo = 1.3*color;
    gPbr = vec4(0, 0, 1, 1);
    // gEmissive = vec4(texture_color, 1);
 }

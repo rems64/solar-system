@@ -2,15 +2,15 @@
 
 in vec2 uv;
 
-out vec4 out_color;
-
 layout(binding = 0) uniform sampler2D s_galbedo;
 layout(binding = 1) uniform sampler2D s_gposition;
 layout(binding = 2) uniform sampler2D s_gnormal;
 layout(binding = 3) uniform sampler2D s_gpbr;
 
-layout(binding = 4) uniform sampler2D s_texture;
-layout(binding = 5) uniform sampler2D s_atmosphere;
+layout(location = 0) out vec4 out_albedo;
+layout(location = 1) out vec4 out_position;
+layout(location = 2) out vec4 out_normal;
+layout(location = 3) out vec4 out_pbr;
 
 uniform mat4 view_projection;
 
@@ -37,13 +37,6 @@ float noise(vec2 xy) {
     float k2 = c - a;
     float k3 = a - b - c + d;
     return (k0 + k1 * uv.x + k2 * uv.y + k3 * uv.x * uv.y);
-}
-
-vec3 starness(float theta, float phi) {
-    vec2 coord = vec2((phi + PI) / (2 * PI), theta / PI);
-    vec2 coord_scaled = vec2(coord.x * cos((coord.y - 0.5) * PI), coord.y);
-    // return vec3(clamp(pow(noise(1000. * coord_scaled), 200.0) * 100.0, 0, 1));
-    return 3 * texture(s_texture, coord).rgb;
 }
 
 float luminosity(vec3 color) {
@@ -90,7 +83,7 @@ const vec3 sun_color = 10. * vec3(1.);
 
 void main() {
     // retrieve data from G-buffer
-    vec3 albedo = texture(s_galbedo, uv).rgb;
+    vec4 albedo = texture(s_galbedo, uv);
     float foreground_mask = texture(s_galbedo, uv).a;
     vec3 position = texture(s_gposition, uv).rgb;
     vec3 normal = texture(s_gnormal, uv).rgb;
@@ -100,19 +93,15 @@ void main() {
     float emissiveness = pbr.b;
     float ao = pbr.a;
 
-    vec3 atmosphere = texture(s_atmosphere, uv).rgb;
-
     vec4 _ray = inverse(view_projection) * vec4(1 * (2 * uv - 1), 1, 1);
     vec3 ray = normalize(_ray.xyz / _ray.w);
     float phi = atan(ray.y, ray.x);
     float theta = acos(ray.z);
 
-    vec3 background = starness(theta, phi);
-
     vec3 V = normalize(camera_position - position);
 
     vec3 F0 = vec3(0.04);
-    F0 = mix(F0, albedo, metallic);
+    F0 = mix(F0, albedo.rgb, metallic);
 
     // reflectance equation
     vec3 Lo = vec3(0.0);
@@ -137,15 +126,14 @@ void main() {
 
     // add to outgoing radiance Lo
     float NdotL = max(dot(normal, L), 0.0);
-    Lo += (kD * albedo / PI + specular) * radiance * NdotL;
+    Lo += (kD * albedo.rgb / PI + specular) * radiance * NdotL;
 
     // vec3 ambient = vec3(0.03) * albedo * ao;
     vec3 ambient = vec3(0.0);
-    vec3 color = emissiveness > 0.5 ? albedo : (ambient + Lo);
+    vec3 color = emissiveness > 0.5 ? albedo.rgb : (ambient + Lo);
 
-    color = color / (color + vec3(1.0));
-    color = pow(color, vec3(1.0 / 2.2));
-    color = foreground_mask > 0.5 ? color : background;
-
-    out_color = vec4(color, 1.0);
+    out_albedo = vec4(color, albedo.a);
+    out_position = vec4(position, 1);
+    out_normal = vec4(normal, 1);
+    out_pbr = vec4(pbr);
 }

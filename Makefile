@@ -2,7 +2,7 @@ CXXFLAGS = -g
 GLFLAGS = -lglfw -lGL
 
 SHADERS_PREFIX = bin/shaders/
-SHADERS_NAMES = atmosphere.frag base.vert deferred.vert deferred.frag flat_clouds.frag sun.frag textured_transparent.frag textured.frag
+SHADERS_NAMES = atmosphere.frag base.vert compositing.vert compositing.frag shading.vert shading.frag flat_clouds.frag sun.frag textured_transparent.frag textured.frag
 SHADERS = $(addprefix $(SHADERS_PREFIX),$(SHADERS_NAMES))
 
 BINDIR = bin
