@@ -14,6 +14,7 @@ layout(location = 2) out vec4 out_normal;
 layout(location = 3) out vec4 out_pbr;
 
 uniform mat4 view_projection;
+uniform vec3 camera_position;
 
 const float PI = 3.1415;
 
@@ -34,10 +35,11 @@ void main() {
     vec4 normal = texture(s_normal, uv);
     vec4 pbr = texture(s_pbr, uv);
 
-    vec4 _ray = inverse(view_projection) * vec4(1 * (2 * uv - 1), 1, 1);
-    vec3 ray = normalize(_ray.xyz);
-    float phi = atan(ray.y, ray.x);
-    float theta = acos(ray.z);
+    vec4 _ray = inverse(view_projection) * vec4((2 * uv - 1), 1, 1);
+    vec3 ray_direction = normalize(_ray.xyz / _ray.w - camera_position);
+
+    float phi = atan(ray_direction.y, ray_direction.x);
+    float theta = acos(ray_direction.z);
 
     vec3 background = starness(theta, phi);
 

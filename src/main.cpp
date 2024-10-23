@@ -1103,6 +1103,7 @@ int main()
 
 		compositing_shader->bind();
 		compositing_shader->set_uniform_mat4fv("view_projection", camera->camera()->get_vp());
+		compositing_shader->set_uniform_vec3fv("camera_position", camera->camera()->get_global_position());
 
 		glBindVertexArray(fullscreen_vao);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
