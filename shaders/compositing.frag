@@ -35,7 +35,7 @@ void main() {
     vec4 pbr = texture(s_pbr, uv);
 
     vec4 _ray = inverse(view_projection) * vec4(1 * (2 * uv - 1), 1, 1);
-    vec3 ray = normalize(_ray.xyz / _ray.w);
+    vec3 ray = normalize(_ray.xyz);
     float phi = atan(ray.y, ray.x);
     float theta = acos(ray.z);
 

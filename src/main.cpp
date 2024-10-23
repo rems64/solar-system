@@ -16,6 +16,10 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+
 // clang-format off
 std::vector<float> fullscreen_rect_vertices = {
     -1.0f, -1.0f,
@@ -254,23 +258,13 @@ struct Transform
 
 	glm::mat4 get_local_model_matrix() const
 	{
-		const glm::mat4 transform_x = glm::rotate(glm::mat4(1.0f),
-												  rotation.x,
-												  glm::vec3(1.0f, 0.0f, 0.0f));
-		const glm::mat4 transform_y = glm::rotate(glm::mat4(1.0f),
-												  rotation.y,
-												  glm::vec3(0.0f, 1.0f, 0.0f));
-		const glm::mat4 transform_z = glm::rotate(glm::mat4(1.0f),
-												  rotation.z,
-												  glm::vec3(0.0f, 0.0f, 1.0f));
-
-		// Order matters :)
-		const glm::mat4 roation_matrix = transform_y * transform_x * transform_z;
+		glm::mat4 rotation_matrix = glm::mat4(1.f);
+		rotation_matrix = glm::rotate(rotation_matrix, rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
+		rotation_matrix = glm::rotate(rotation_matrix, rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
+		rotation_matrix = glm::rotate(rotation_matrix, rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
 
 		// Order matters too
-		return glm::translate(glm::mat4(1.0f), position) *
-			   roation_matrix *
-			   glm::scale(glm::mat4(1.0f), scale);
+		return glm::translate(glm::mat4(1.0f), position) * rotation_matrix * glm::scale(glm::mat4(1.0f), scale);
 	}
 };
 
@@ -372,7 +366,7 @@ public:
 		stbi_image_free(m_data);
 	}
 
-	Texture(uint32_t width, uint32_t height, uint32_t depth, GLenum type, GLenum internal_format, bool mipmaps=true) : m_resource(0), m_data(nullptr), m_width(width), m_height(height), m_depth(depth)
+	Texture(uint32_t width, uint32_t height, uint32_t depth, GLenum type, GLenum internal_format, bool mipmaps = true) : m_resource(0), m_data(nullptr), m_width(width), m_height(height), m_depth(depth)
 	{
 		generate_texture(type, internal_format, mipmaps);
 	}
@@ -391,7 +385,7 @@ public:
 	}
 
 public:
-	void generate_texture(GLenum type, GLenum internal_format, bool mipmaps=true)
+	void generate_texture(GLenum type, GLenum internal_format, bool mipmaps = true)
 	{
 		delete_texture();
 
@@ -468,18 +462,22 @@ public:
 	~SceneElement() = default;
 
 	void set_position(glm::vec3 position) { m_transform.position = position; };
+	void add_position(glm::vec3 delta_position) { m_transform.position += delta_position; };
 	glm::vec3 get_position() { return m_transform.position; };
+	glm::vec3 get_global_position() { return glm::vec3(get_model_matrix() * glm::vec4(0, 0, 0, 1)); };
 
 	void set_rotation(glm::vec3 rotation) { m_transform.rotation = rotation; };
+	void add_rotation(glm::vec3 delta_rotation) { m_transform.rotation += delta_rotation; };
 	glm::vec3 get_rotation() { return m_transform.rotation; };
 
 	void set_scale(glm::vec3 scale) { m_transform.scale = scale; };
+	void add_scale(glm::vec3 delta_scale) { m_transform.scale += delta_scale; };
 	glm::vec3 get_scale() { return m_transform.scale; };
 
 	const glm::mat4 &get_model_matrix() const { return m_transform.model_matrix; };
 	const Transform &get_transform() const { return m_transform; };
 
-	void update()
+	virtual void update()
 	{
 		if (m_parent)
 		{
@@ -636,7 +634,6 @@ class Camera : public SceneElement
 {
 public:
 	Camera(float fovy, float aspect, float near, float far) : m_target(glm::vec3(0)),
-															  m_view(glm::mat4(1.)),
 															  m_projection(glm::mat4(1.)),
 															  m_vp(glm::mat4(1.)),
 															  m_fovy(fovy),
@@ -645,31 +642,20 @@ public:
 															  m_far(far)
 	{
 	}
-	void set_position(glm::vec3 position)
-	{
-		SceneElement::set_position(position);
-	}
 
-	void set_aspect(float aspect)
-	{
-		m_aspect = aspect;
-	}
+	void set_aspect(float aspect) { m_aspect = aspect; }
 
-	void update()
+	void update() override
 	{
 		SceneElement::update();
 
-		m_view = glm::lookAt(
-			m_transform.position,
-			m_target,
-			glm::vec3(0, 0, 1));
 		m_projection = glm::perspective(
 			m_fovy / 180.f * glm::pi<float>(),
 			m_aspect,
 			m_near,
 			m_far);
-		m_vp = m_projection * m_view;
-	}
+		m_vp = m_projection * glm::inverse(get_model_matrix());
+	};
 
 	void look_at(glm::vec3 target)
 	{
@@ -681,6 +667,8 @@ public:
 		return m_vp;
 	}
 
+	virtual void move(glm::vec2 delta) {};
+
 private:
 	float m_fovy;
 	float m_aspect;
@@ -688,21 +676,117 @@ private:
 	float m_far;
 
 	glm::vec3 m_target;
-	glm::mat4 m_view;
 	glm::mat4 m_projection;
 	glm::mat4 m_vp;
 };
 
-int viewport_width = 512;
-int viewport_height = 512;
-bool viewport_dirty = true;
+class CameraController : public SceneElement
+{
+public:
+	CameraController(float fovy, float aspect, float near, float far)
+	{
+		m_camera = std::make_shared<Camera>(fovy, aspect, near, far);
+		m_camera->set_parent(this);
+		m_camera->add_rotation(glm::vec3(glm::pi<float>() / 2.f, 0.f, 0.f));
+	}
+
+	std::shared_ptr<Camera> camera() const { return m_camera; };
+
+	virtual void move(glm::vec2 delta) {};
+	virtual void zoom(float delta) {};
+
+protected:
+	std::shared_ptr<Camera> m_camera;
+};
+
+class OrbitCameraController : public CameraController
+{
+public:
+	OrbitCameraController(float fovy, float aspect, float near, float far, float distance) : CameraController(fovy, aspect, near, far), m_distance(distance)
+	{
+		set_position(glm::vec3(0.f));
+		update_camera_distance();
+	}
+
+	void update_camera_distance()
+	{
+		m_camera->set_position(glm::vec3(0.f, -m_distance, 0.f));
+		update();
+	}
+
+	void move(glm::vec2 delta) override
+	{
+		add_rotation(glm::vec3(-delta.y, 0.f, -delta.x));
+		update();
+	}
+
+	void zoom(float delta) override
+	{
+		m_distance += -delta;
+		update_camera_distance();
+	}
+
+private:
+	float m_distance;
+};
+
+struct G
+{
+	struct Input
+	{
+		glm::vec2 cursor_position;
+		bool cursor_left_down;
+	} input;
+
+	struct Screen
+	{
+		int width = 1024;
+		int height = 1024;
+		bool dirty = true;
+	} screen;
+
+	std::shared_ptr<CameraController> camera;
+} g;
 
 void resize_callback(GLFWwindow *window, int width, int height)
 {
-	viewport_width = width;
-	viewport_height = height;
-	viewport_dirty = true;
+	g.screen.width = width;
+	g.screen.height = height;
+	g.screen.dirty = true;
 	glViewport(0, 0, width, height);
+}
+
+void cursor_pos_callback(GLFWwindow *window, double xpos, double ypos)
+{
+	glm::vec2 new_pos = glm::vec2(xpos, ypos);
+	glm::vec2 delta = new_pos - g.input.cursor_position;
+	if (g.input.cursor_left_down)
+	{
+		glm::vec3 camera_position = g.camera->get_position();
+		float dphi = 0.01f * delta.x;
+		float dtheta = 0.01f * delta.y;
+		g.camera->move(glm::vec2(dphi, dtheta));
+		// g.camera->set_position(glm::vec3(camera_position.x * cos(dphi) - camera_position.y * sin(dphi), camera_position.x * sin(dphi) + camera_position.y * cos(dphi), camera_position.z + dtheta));
+	}
+	g.input.cursor_position = new_pos;
+}
+
+void scroll_callback(GLFWwindow *window, double xoffset, double yoffset)
+{
+	g.camera->zoom(yoffset);
+}
+
+void mouse_button_callback(GLFWwindow *window, int button, int action, int mods)
+{
+	switch (button)
+	{
+	case GLFW_MOUSE_BUTTON_LEFT:
+		g.input.cursor_left_down = action == GLFW_PRESS;
+		break;
+
+	default:
+		break;
+	}
 }
 
 void setup(GLFWwindow *&window)
@@ -715,7 +799,7 @@ void setup(GLFWwindow *&window)
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-	window = glfwCreateWindow(viewport_width, viewport_height, "Window", nullptr, nullptr);
+	window = glfwCreateWindow(g.screen.width, g.screen.height, "Window", nullptr, nullptr);
 	if (!window)
 	{
 		glfwTerminate();
@@ -725,6 +809,21 @@ void setup(GLFWwindow *&window)
 	gladLoadGL();
 
 	glfwSetWindowSizeCallback(window, resize_callback);
+	glfwSetCursorPosCallback(window, cursor_pos_callback);
+	glfwSetScrollCallback(window, scroll_callback);
+	glfwSetMouseButtonCallback(window, mouse_button_callback);
+
+	// Setup Dear ImGui context
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO &io = ImGui::GetIO();
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;	  // IF using Docking Branch
+
+	// Setup Platform/Renderer backends
+	ImGui_ImplGlfw_InitForOpenGL(window, true); // Second param install_callback=true will install GLFW callbacks and chain to existing ones.
+	ImGui_ImplOpenGL3_Init();
 }
 
 struct FramebufferAttachment
@@ -796,8 +895,11 @@ private:
 	unsigned int m_framebuffer;
 };
 
+#include "capture.hpp"
+
 int main()
 {
+	// video_encode_example("test.mp4", AV_CODEC_ID_H264);
 	GLFWwindow *window;
 
 	setup(window);
@@ -813,11 +915,11 @@ int main()
 		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // normal (4 for alignment)
 		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // metallic + roughness + emissiveness
 	};
-	auto g_buffer = std::make_shared<Framebuffer>(viewport_width, viewport_height, gbuffer_attachments);
+	auto g_buffer = std::make_shared<Framebuffer>(g.screen.width, g.screen.height, gbuffer_attachments);
 
-	auto shading_framebuffer = std::make_shared<Framebuffer>(viewport_width, viewport_height, gbuffer_attachments);
+	auto shading_framebuffer = std::make_shared<Framebuffer>(g.screen.width, g.screen.height, gbuffer_attachments);
 
-	auto composite_framebuffer = std::make_shared<Framebuffer>(viewport_width, viewport_height, gbuffer_attachments);
+	auto composite_framebuffer = std::make_shared<Framebuffer>(g.screen.width, g.screen.height, gbuffer_attachments);
 
 	auto solar_root = std::make_shared<SceneElement>();
 
@@ -844,6 +946,8 @@ int main()
 	auto moon = std::make_shared<Sphere>(20, 40, 0.1f, moon_material);
 
 	// auto atmosphere = std::make_shared<Sphere>(20, 40, earth->radius() * 1.5f, atmosphere_material, true);
+	float atmosphere_multiplier = 1.15f;
+	bool move_planets = false;
 
 	drawables.push_back(sun);
 	drawables.push_back(earth);
@@ -859,11 +963,8 @@ int main()
 
 	solar_root->update();
 
-	Camera camera(60.f, (float)viewport_width / (float)viewport_height, 0.1f, 100.f);
-
-	camera.set_position(glm::vec3(1., -5, 5));
-	camera.look_at(glm::vec3(0., 0., 0.));
-	camera.update();
+	std::shared_ptr<OrbitCameraController> camera = std::make_shared<OrbitCameraController>(60.f, (float)g.screen.width / (float)g.screen.height, 0.1f, 100.f, 10.f);
+	g.camera = camera;
 
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -900,8 +1001,16 @@ int main()
 	glEnableVertexAttribArray(0);
 
 	double start_time = glfwGetTime();
+
+	const char *focus_bodies[] = {"sun", "earth", "moon"};
+	static const char *current_focus_body = focus_bodies[0];
+
 	while (!glfwWindowShouldClose(window))
 	{
+		ImGui_ImplOpenGL3_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
+
 		double time = glfwGetTime() - start_time;
 
 		g_buffer->bind();
@@ -909,22 +1018,38 @@ int main()
 		glEnable(GL_DEPTH_TEST);
 		glEnable(GL_CULL_FACE);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glViewport(0, 0, viewport_width, viewport_height);
+		glViewport(0, 0, g.screen.width, g.screen.height);
 
-		if (viewport_dirty)
+		if (g.screen.dirty)
 		{
-			g_buffer->record(viewport_width, viewport_height);
-			composite_framebuffer->record(viewport_width, viewport_height);
-			shading_framebuffer->record(viewport_width, viewport_height);
-			viewport_dirty = false;
+			g_buffer->record(g.screen.width, g.screen.height);
+			composite_framebuffer->record(g.screen.width, g.screen.height);
+			shading_framebuffer->record(g.screen.width, g.screen.height);
+			g.screen.dirty = false;
 		}
 
-		camera.set_aspect((float)viewport_width / viewport_height);
-		camera.update();
+		camera->camera()->set_aspect((float)g.screen.width / g.screen.height);
+		glm::vec3 camera_position;
+		if (strcmp(current_focus_body, "sun") == 0)
+			camera_position = sun->get_global_position();
+		else if (strcmp(current_focus_body, "earth") == 0)
+			camera_position = earth->get_global_position();
+		else if (strcmp(current_focus_body, "moon") == 0)
+			camera_position = moon->get_global_position();
+		else
+			camera_position = glm::vec3(0.f);
 
-		earth->set_position(4.f * glm::vec3(glm::cos(time), glm::sin(time), 0.));
-		moon->set_position(1.f * glm::vec3(glm::cos(3 * time), glm::sin(3 * time), 0.));
-		sun->set_rotation(glm::vec3(0, 0, -0.4f * time));
+		camera->set_position(camera_position);
+		camera->update();
+		// camera->set_rotation(cam_rot);
+		// camera->update();
+
+		if (move_planets)
+		{
+			earth->set_position(4.f * glm::vec3(glm::cos(time), glm::sin(time), 0.));
+			moon->set_position(1.f * glm::vec3(glm::cos(3 * time), glm::sin(3 * time), 0.));
+			sun->set_rotation(glm::vec3(0, 0, -0.4f * time));
+		}
 		solar_root->update();
 
 		for (auto it = drawables.begin(); it != drawables.end(); it++)
@@ -935,7 +1060,7 @@ int main()
 			{
 				// TODO: group by material (material instances...)
 				it->get()->get_material()->get_shader()->set_uniform_mat4fv("local_model", scene_element->get_transform().get_local_model_matrix());
-				it->get()->get_material()->get_shader()->set_uniform_mat4fv("vp", camera.get_vp());
+				it->get()->get_material()->get_shader()->set_uniform_mat4fv("vp", camera->camera()->get_vp());
 				it->get()->get_material()->get_shader()->set_uniform_mat4fv("model", (scene_element->get_model_matrix()));
 			}
 
@@ -948,7 +1073,7 @@ int main()
 		// Shading
 		shading_framebuffer->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glViewport(0, 0, viewport_width, viewport_height);
+		glViewport(0, 0, g.screen.width, g.screen.height);
 		size_t i = 0;
 		auto buffers = g_buffer->get_buffers();
 		for (auto it = buffers.begin(); it != buffers.end(); it++, i++)
@@ -963,7 +1088,7 @@ int main()
 		// Compositing
 		composite_framebuffer->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glViewport(0, 0, viewport_width, viewport_height);
+		glViewport(0, 0, g.screen.width, g.screen.height);
 
 		i = 0;
 		buffers = shading_framebuffer->get_buffers();
@@ -977,7 +1102,7 @@ int main()
 		stars_texture->bind();
 
 		compositing_shader->bind();
-		compositing_shader->set_uniform_mat4fv("view_projection", camera.get_vp());
+		compositing_shader->set_uniform_mat4fv("view_projection", camera->camera()->get_vp());
 
 		glBindVertexArray(fullscreen_vao);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
@@ -985,7 +1110,7 @@ int main()
 		// Atmosphere
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glViewport(0, 0, viewport_width, viewport_height);
+		glViewport(0, 0, g.screen.width, g.screen.height);
 		i = 0;
 		buffers = composite_framebuffer->get_buffers();
 		for (auto it = buffers.begin(); it != buffers.end(); it++, i++)
@@ -995,15 +1120,15 @@ int main()
 		}
 
 		atmosphere_material->bind();
-		// atmosphere_material->get_shader()->set_uniform_mat4fv("vp", camera.get_vp());
+		// atmosphere_material->get_shader()->set_uniform_mat4fv("vp", camera->get_vp());
 		// atmosphere_material->get_shader()->set_uniform_mat4fv("model", (atmosphere->get_model_matrix()));
 
-		atmosphere_material->get_shader()->set_uniform_mat4fv("inv_vp", glm::inverse(camera.get_vp()));
-		atmosphere_material->get_shader()->set_uniform_vec2fv("viewport_size", glm::vec2(viewport_width, viewport_height));
-		atmosphere_material->get_shader()->set_uniform_vec3fv("camera_position", camera.get_position());
+		atmosphere_material->get_shader()->set_uniform_mat4fv("inv_vp", glm::inverse(camera->camera()->get_vp()));
+		atmosphere_material->get_shader()->set_uniform_vec2fv("viewport_size", glm::vec2(g.screen.width, g.screen.height));
+		atmosphere_material->get_shader()->set_uniform_vec3fv("camera_position", glm::vec3(camera->camera()->get_model_matrix() * glm::vec4(0, 0, 0, 1)));
 		atmosphere_material->get_shader()->set_uniform_vec3fv("atmosphere_center", glm::vec3(earth->get_model_matrix() * glm::vec4(0, 0, 0, 1)));
 		// atmosphere_material->get_shader()->set_uniform_float("atmosphere_radius", atmosphere->radius());
-		atmosphere_material->get_shader()->set_uniform_float("atmosphere_radius", earth->radius() * 1.15f);
+		atmosphere_material->get_shader()->set_uniform_float("atmosphere_radius", earth->radius() * atmosphere_multiplier);
 		atmosphere_material->get_shader()->set_uniform_float("planet_radius", earth->radius());
 
 		const glm::vec3 wavelengths = glm::vec3(700, 530, 440);
@@ -1017,10 +1142,41 @@ int main()
 		glBindVertexArray(fullscreen_vao);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
+		ImGui::Begin("Atmosphere");
+		ImGui::DragFloat("Atmosphere size multiplier", &atmosphere_multiplier, 0.1f, 1.f, 2.f);
+		ImGui::End();
+
+		ImGui::Begin("Solar system");
+		ImGui::Checkbox("Move planets", &move_planets);
+		ImGui::End();
+
+		ImGui::Begin("Camera");
+
+		if (ImGui::BeginCombo("Focus body", current_focus_body))
+		{
+			for (int n = 0; n < IM_ARRAYSIZE(focus_bodies); n++)
+			{
+				bool is_selected = (current_focus_body == focus_bodies[n]);
+				if (ImGui::Selectable(focus_bodies[n], is_selected))
+					current_focus_body = focus_bodies[n];
+				if (is_selected)
+					ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
+		ImGui::End();
+
+		ImGui::Render();
+		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}
+
+	ImGui_ImplOpenGL3_Shutdown();
+	ImGui_ImplGlfw_Shutdown();
+	ImGui::DestroyContext();
 
 	glfwDestroyWindow(window);
 	glfwTerminate();
