@@ -2,8 +2,8 @@
 
 #define MAX_FLOAT 99999999
 #define PI 3.141592
-#define num_inscatter_points 10
-#define num_optical_depth_points 10
+// #define num_inscatter_points 10
+// #define num_optical_depth_points 10
 #define density_falloff 4.
 
 out vec4 out_color;
@@ -23,6 +23,11 @@ uniform float atmosphere_radius;
 uniform float planet_radius;
 
 uniform vec3 scattering_coefficients;
+
+uniform int num_inscatter_points;
+uniform int num_optical_depth_points;
+
+uniform bool use_round_sphere;
 
 vec2 ray_sphere(vec3 center, float radius, vec3 ray_origin, vec3 ray_direction) {
     // ray_direction has to be normalized
@@ -87,6 +92,8 @@ vec3 calculate_light(vec3 ray_origin, vec3 ray_direction, float ray_length, vec3
 }
 
 void main() {
+    const float epsilon = 0.001;
+
     // retrieve data from G-buffer
     // warning: no -0.5 here, despite what's written on the internet :sad_face:
     vec2 uv = vec2(gl_FragCoord.x, gl_FragCoord.y);
@@ -95,32 +102,51 @@ void main() {
     vec3 position = texture(s_gposition, uv).rgb;
     vec3 normal = texture(s_gnormal, uv).rgb;
     vec4 pbr = texture(s_gpbr, uv).rgba;
+    float emissivness = pbr.b;
 
     vec4 _ray = inv_vp * vec4((2 * uv - 1), 1, 1);
     vec3 ray_direction = normalize(_ray.xyz / _ray.w - camera_position);
 
-    float distance_to_sphere = length(position - camera_position);
+    // float distance_to_sphere = length(position - camera_position);
+    float distance_to_scene;
+    if(use_round_sphere) {
+        vec2 planet_hit_info = ray_sphere(atmosphere_center, planet_radius, camera_position, ray_direction);
+        distance_to_scene = planet_hit_info.y > 0 ? min(planet_hit_info.x, length(position - camera_position) + epsilon) : length(position - camera_position);
+    } else {
+        distance_to_scene = length(position - camera_position);
+    }
+    // distance_to_scene = length(position - camera_position);
+    // out_color = vec4(vec3(planet_hit_info.y> 0, 0, 0), 1);
+    // return;
+    // distance_to_scene = length(position - camera_position);
+    // if (planet_hit_info.x != MAX_FLOAT) {
+    //     out_color = vec4(1, 0, 0, 1);
+    //     return;
+    // }
 
-    vec2 hit_info = ray_sphere(atmosphere_center, atmosphere_radius, camera_position, ray_direction);
-    float dist_to_atmosphere = hit_info.x;
+    vec2 atmosphere_hit_info = ray_sphere(atmosphere_center, atmosphere_radius, camera_position, ray_direction);
+    float dist_to_atmosphere = atmosphere_hit_info.x;
 
     // Prevents (0, 0, 0) of the sky to be used as position
-    float distance_through_atmosphere_to_sphere = length(position) > 0 ? distance_to_sphere - dist_to_atmosphere : MAX_FLOAT;
-    float dist_through_atmosphere = min(hit_info.y, distance_through_atmosphere_to_sphere);
+    float distance_through_atmosphere_to_sphere = length(position) > 0 ? distance_to_scene - dist_to_atmosphere : MAX_FLOAT;
+    float dist_through_atmosphere = min(atmosphere_hit_info.y, distance_through_atmosphere_to_sphere);
 
     vec3 color;
 
     if(dist_through_atmosphere > 0) {
-        const float epsilon = 0.001;
         vec3 point_in_atmosphere = camera_position + ray_direction * (dist_to_atmosphere + epsilon);
         vec3 light = calculate_light(point_in_atmosphere, ray_direction, dist_through_atmosphere - 2 * epsilon, albedo.rgb);
         color = light;
+        // color = vec3(dist_through_atmosphere / planet_radius, 0, 0);
     } else {
         color = albedo.rgb;
+        // color = vec3(0, 1, 0);
         // color = vec4(1, 0, 1, 1);
     }
 
-    color = color / (color + vec3(1.0));
-    color = pow(color, vec3(1.0 / 2.2));
+    if(emissivness < 0.5) {
+        color = color / (color + vec3(1.0));
+        color = pow(color, vec3(1.0 / 2.2));
+    }
     out_color = vec4(color, 1);
 }

@@ -343,6 +343,20 @@ public:
 			value);
 	}
 
+	void set_uniform_int(const char *name, const int &value)
+	{
+		glUniform1i(
+			glGetUniformLocation(m_program, name),
+			value);
+	}
+
+	void set_uniform_bool(const char *name, const bool &value)
+	{
+		glUniform1i(
+			glGetUniformLocation(m_program, name),
+			value);
+	}
+
 	void set_uniform_int(const char *name, const unsigned int &value)
 	{
 		glUniform1i(
@@ -366,9 +380,19 @@ public:
 		stbi_image_free(m_data);
 	}
 
-	Texture(uint32_t width, uint32_t height, uint32_t depth, GLenum type, GLenum internal_format, bool mipmaps = true) : m_resource(0), m_data(nullptr), m_width(width), m_height(height), m_depth(depth)
+	Texture(uint32_t width, uint32_t height, uint32_t depth, GLenum type, GLenum internal_format, bool mipmaps = true, bool fill = false) : m_resource(0), m_data(nullptr), m_width(width), m_height(height), m_depth(depth), m_should_free(fill)
 	{
+		if (fill)
+		{
+			m_data = (unsigned char *)calloc(width * height * depth, sizeof(unsigned char));
+		}
 		generate_texture(type, internal_format, mipmaps);
+	}
+
+	~Texture()
+	{
+		if (m_should_free)
+			free(m_data);
 	}
 
 	const unsigned int get_resource() { return m_resource; };
@@ -412,6 +436,8 @@ private:
 	int32_t m_depth;
 	unsigned char *m_data;
 	unsigned int m_resource;
+
+	bool m_should_free = false;
 };
 
 class Material
@@ -778,6 +804,8 @@ void scroll_callback(GLFWwindow *window, double xoffset, double yoffset)
 
 void mouse_button_callback(GLFWwindow *window, int button, int action, int mods)
 {
+	if (ImGui::GetIO().WantCaptureMouse)
+		return;
 	switch (button)
 	{
 	case GLFW_MOUSE_BUTTON_LEFT:
@@ -927,7 +955,9 @@ int main()
 	auto earth_texture = std::make_shared<Texture>("textures/2k_earth_daymap.jpg");
 	auto earth_normal_texture = std::make_shared<Texture>("textures/2k_earth_normal_map.png");
 	auto earth_specular_texture = std::make_shared<Texture>("textures/2k_earth_specular_map.png");
+	auto earth_night_texture = std::make_shared<Texture>("textures/2k_earth_nightmap.jpg");
 	auto moon_texture = std::make_shared<Texture>("textures/2k_moon.jpg");
+	auto dummy_black = std::make_shared<Texture>(1, 1, 4, GL_FLOAT, GL_RGBA16F, true, true);
 
 	// auto stars_texture = std::make_shared<Texture>("textures/2k_sun.jpg");
 	auto stars_texture = std::make_shared<Texture>("textures/2k_stars.jpg");
@@ -937,8 +967,8 @@ int main()
 	auto atmosphere_shader = std::make_shared<Shader>("shaders/compositing.vert", "shaders/atmosphere.frag");
 
 	auto sun_material = std::make_shared<Material>(sun_shader, std::vector<std::shared_ptr<Texture>>{sun_texture});
-	auto earth_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{earth_texture, earth_normal_texture, earth_specular_texture});
-	auto moon_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{moon_texture});
+	auto earth_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{earth_texture, earth_normal_texture, earth_specular_texture, earth_night_texture});
+	auto moon_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{moon_texture, dummy_black, dummy_black, dummy_black});
 	auto atmosphere_material = std::make_shared<Material>(atmosphere_shader, std::vector<std::shared_ptr<Texture>>{});
 
 	auto sun = std::make_shared<Sphere>(20, 40, 1.0f, sun_material);
@@ -981,6 +1011,7 @@ int main()
 	simple_texture_shader->set_uniform_int("s_albedo", 0);
 	simple_texture_shader->set_uniform_int("s_normal", 1);
 	simple_texture_shader->set_uniform_int("s_specular", 2);
+	simple_texture_shader->set_uniform_int("s_emissive", 3);
 	simple_texture_shader->set_uniform_vec3fv("tint", glm::vec3(1, 0.5, 0.5));
 
 	// Deferred shading
@@ -1002,8 +1033,12 @@ int main()
 
 	double start_time = glfwGetTime();
 
+	// Controls
 	const char *focus_bodies[] = {"sun", "earth", "moon"};
 	static const char *current_focus_body = focus_bodies[0];
+	int num_inscatter_points = 6;
+	int num_optical_depth_points = 6;
+	bool use_round_sphere = true;
 
 	while (!glfwWindowShouldClose(window))
 	{
@@ -1132,6 +1167,10 @@ int main()
 		atmosphere_material->get_shader()->set_uniform_float("atmosphere_radius", earth->radius() * atmosphere_multiplier);
 		atmosphere_material->get_shader()->set_uniform_float("planet_radius", earth->radius());
 
+		atmosphere_material->get_shader()->set_uniform_int("num_inscatter_points", num_inscatter_points);
+		atmosphere_material->get_shader()->set_uniform_int("num_optical_depth_points", num_optical_depth_points);
+		atmosphere_material->get_shader()->set_uniform_bool("use_round_sphere", use_round_sphere);
+
 		const glm::vec3 wavelengths = glm::vec3(700, 530, 440);
 		float scattering_strength = 20.f;
 		float scatter_r = pow(400 / wavelengths.x, 4) * scattering_strength;
@@ -1144,7 +1183,10 @@ int main()
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
 		ImGui::Begin("Atmosphere");
-		ImGui::DragFloat("Atmosphere size multiplier", &atmosphere_multiplier, 0.1f, 1.f, 2.f);
+		ImGui::DragFloat("Atmosphere size multiplier", &atmosphere_multiplier, 0.01f, 1.001f, 2.f);
+		ImGui::InputInt("num_inscatter_points", &num_inscatter_points);
+		ImGui::InputInt("num_optical_depth_points", &num_optical_depth_points);
+		ImGui::Checkbox("use_round_sphere", &use_round_sphere);
 		ImGui::End();
 
 		ImGui::Begin("Solar system");
