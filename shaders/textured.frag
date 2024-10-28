@@ -20,6 +20,9 @@ uniform sampler2D s_specular;
 uniform sampler2D s_emissive;
 
 uniform vec3 tint;
+uniform int use_round_normals;
+
+in vec3 model_center;
 
 vec4 lerp(vec4 a, vec4 b, float t) {
    return b * t + a * (1. - t);
@@ -34,6 +37,10 @@ void main() {
    vec3 combined_normal = normal * 2.0 - 1.0;
    // combined_normal = normalize(vs_in.TBN * vec3(0, 0, 1));
    combined_normal = normalize(vs_in.TBN * vec3(0, 0, 1));
+   combined_normal = vs_in.normal;
+   if(use_round_normals == 1) {
+      combined_normal = normalize(vs_in.position - model_center);
+   }
 
    vec3 sun_direction = normalize(-vs_in.position);
 

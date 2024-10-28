@@ -81,7 +81,7 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0) {
 }
 
 const vec3 sun_position = vec3(0.);
-const vec3 sun_color = 10. * vec3(1.);
+const vec3 sun_color = 400. * vec3(1.);
 
 void main() {
     // retrieve data from G-buffer
@@ -132,7 +132,7 @@ void main() {
     Lo += (kD * albedo.rgb / PI + specular) * radiance * NdotL;
 
     // vec3 ambient = vec3(0.03) * albedo * ao;
-    vec3 ambient = vec3(0.0);
+    vec3 ambient = vec3(0.01);
     // vec3 color = emissiveness >= 0.1 ? albedo.rgb : (ambient + Lo);
     vec3 color = ambient + Lo + emissive;
 

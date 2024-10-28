@@ -11,12 +11,16 @@ out VS_OUT {
    mat3 TBN;
 } vs_out;
 
+out vec3 model_center;
+
 uniform mat4 local_model;
 uniform mat4 model;
 uniform mat4 vp;
 
 void main() {
    vec4 position = model * vec4(in_position, 1);
+   vec4 center = model * vec4(vec3(0), 1);
+   model_center = center.xyz / center.w;
    gl_Position = vp * position;
 
    // Generate TBN space

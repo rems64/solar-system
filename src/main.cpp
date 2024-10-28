@@ -383,6 +383,7 @@ enum DummyTexture
 	DUMMY_NONE,
 	DUMMY_BLACK,
 	DUMMY_NORMAL,
+	DUMMY_RED,
 };
 
 class Texture
@@ -409,6 +410,12 @@ public:
 				m_data[1] = 0;
 				m_data[2] = 0;
 				m_data[3] = 0;
+				break;
+			case DUMMY_RED:
+				m_data[0] = 255;
+				m_data[1] = 0;
+				m_data[2] = 0;
+				m_data[3] = 255;
 				break;
 			case DUMMY_NORMAL:
 				m_data[0] = 0;
@@ -825,7 +832,6 @@ public:
 	void zoom(float delta) override
 	{
 		m_target_distance *= powf(1.2, -delta);
-		m_target_distance = fmin(fmax(m_target_distance, 0.3f), 50.f);
 		// std::cout << "delta: " << delta << std::endl;
 		// std::cout << "distance: " << m_target_distance << std::endl;
 		update_camera_distance();
@@ -1070,14 +1076,27 @@ int main()
 	auto composite_framebuffer = std::make_shared<Framebuffer>(g.screen.width, g.screen.height, gbuffer_attachments);
 
 	auto solar_root = std::make_shared<SceneElement>();
+	auto earth_root = std::make_shared<SceneElement>();
 
 	auto sun_texture = std::make_shared<Texture>("textures/2k_sun.jpg");
+	// Earth
 	auto earth_texture = std::make_shared<Texture>("textures/2k_earth_daymap.jpg");
 	auto earth_normal_texture = std::make_shared<Texture>("textures/2k_earth_normal_map.png");
 	auto earth_specular_texture = std::make_shared<Texture>("textures/2k_earth_specular_map.png");
 	auto earth_night_texture = std::make_shared<Texture>("textures/2k_earth_nightmap.jpg");
+
+	// Mercury
+	auto mercury_texture = std::make_shared<Texture>("textures/2k_mercury.jpg");
+
+	// Venus
+	auto venus_texture = std::make_shared<Texture>("textures/2k_venus_surface.jpg");
+
+	// Mars
+	auto mars_texture = std::make_shared<Texture>("textures/2k_mars.jpg");
+
 	auto moon_texture = std::make_shared<Texture>("textures/2k_moon.jpg");
 	auto dummy_black = std::make_shared<Texture>(1, 1, 4, GL_UNSIGNED_BYTE, GL_UNSIGNED_BYTE, true, DUMMY_BLACK);
+	auto dummy_red = std::make_shared<Texture>(1, 1, 4, GL_UNSIGNED_BYTE, GL_UNSIGNED_BYTE, true, DUMMY_RED);
 	auto dummy_normal = std::make_shared<Texture>(1, 1, 4, GL_UNSIGNED_BYTE, GL_UNSIGNED_BYTE, true, DUMMY_NORMAL);
 	// auto dummy_normal = std::make_shared<Texture>("textures/dummy_normal.png");
 
@@ -1090,32 +1109,82 @@ int main()
 
 	auto sun_material = std::make_shared<Material>(sun_shader, std::vector<std::shared_ptr<Texture>>{sun_texture});
 	auto earth_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{earth_texture, earth_normal_texture, earth_specular_texture, earth_night_texture});
-	auto moon_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{moon_texture, dummy_normal, dummy_black, dummy_black});
+	auto moon_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{moon_texture, dummy_normal, dummy_red, dummy_black});
+	auto mercury_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{mercury_texture, dummy_normal, dummy_red, dummy_black});
+	auto venus_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{venus_texture, dummy_normal, dummy_red, dummy_black});
+	auto mars_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{mars_texture, dummy_normal, dummy_red, dummy_black});
 	auto atmosphere_material = std::make_shared<Material>(atmosphere_shader, std::vector<std::shared_ptr<Texture>>{});
 
-	auto sun = std::make_shared<Sphere>(20, 40, 1.0f, sun_material);
-	auto earth = std::make_shared<Sphere>(20, 40, 0.5f, earth_material);
-	auto moon = std::make_shared<Sphere>(20, 40, 0.1f, moon_material);
+	auto sun = std::make_shared<Sphere>(20, 40, 4.f, sun_material);
+	auto mercury = std::make_shared<Sphere>(20, 40, 0.48f, mercury_material);
+	auto venus = std::make_shared<Sphere>(20, 40, 1.20f, venus_material);
+	auto earth = std::make_shared<Sphere>(20, 40, 1.28f, earth_material);
+	auto moon = std::make_shared<Sphere>(20, 40, 0.34f, moon_material);
+	auto mars = std::make_shared<Sphere>(20, 40, 0.68f, mars_material);
 
 	// auto atmosphere = std::make_shared<Sphere>(20, 40, earth->radius() * 1.5f, atmosphere_material, true);
 	float atmosphere_multiplier = 1.15f;
 	bool move_planets = false;
 
 	drawables.push_back(sun);
+	drawables.push_back(mercury);
+	drawables.push_back(venus);
 	drawables.push_back(earth);
 	drawables.push_back(moon);
+	drawables.push_back(mars);
 
-	moon->set_parent(earth.get());
-	earth->set_parent(solar_root.get());
+	moon->set_parent(earth_root.get());
+	earth->set_parent(earth_root.get());
+	earth_root->set_parent(solar_root.get());
+	mercury->set_parent(solar_root.get());
+	venus->set_parent(solar_root.get());
+	mars->set_parent(solar_root.get());
 	sun->set_parent(solar_root.get());
 	// atmosphere->set_parent(earth.get());
 
-	earth->set_position(glm::vec3(4., 0., 0.));
-	moon->set_position(glm::vec3(2., 0., 0.));
+	earth->set_position(glm::vec3(0., 0., 0.));
+
+	// earth->set_position(glm::vec3(15., 0., 0.));
+	// mercury->set_position(glm::vec3(5.8, 0., 0.));
+	// venus->set_position(glm::vec3(10., 0., 0.));
+	// mars->set_position(glm::vec3(23., 0., 0.));
+	// moon->set_position(glm::vec3(2., 0., 0.));
+
+	struct
+	{
+		std::shared_ptr<SceneElement> planet;
+		float rotation_frequency;
+		float revolution_frequency;
+		float distance;
+	} planet_infos[] = {{.planet = mercury,
+						 .rotation_frequency = 1.97f,
+						 .revolution_frequency = 1.32f,
+						 .distance = 5.8f},
+						{.planet = venus,
+						 .rotation_frequency = -0.47f,
+						 .revolution_frequency = 0.514f,
+						 .distance = 10.f},
+						{.planet = earth_root,
+						 .rotation_frequency = 0.f,
+						 .revolution_frequency = 0.317f,
+						 .distance = 15.f},
+						{.planet = earth,
+						 .rotation_frequency = 116.f,
+						 .revolution_frequency = 0.f,
+						 .distance = 0.f},
+						{.planet = mars,
+						 .rotation_frequency = 112.f,
+						 .revolution_frequency = 0.169f,
+						 .distance = 23.f},
+						{.planet = moon,
+						 .rotation_frequency = 4.24f,
+						 .revolution_frequency = 4.24f,
+						 .distance = 2.f}};
 
 	solar_root->update();
 
 	std::shared_ptr<OrbitCameraController> camera = std::make_shared<OrbitCameraController>(60.f, (float)g.screen.width / (float)g.screen.height, 0.1f, 100.f, 10.f);
+	// std::shared_ptr<OrbitCameraController> camera = std::make_shared<OrbitCameraController>(60.f, (float)g.screen.width / (float)g.screen.height, 0.5f, 16000.f, 10.f);
 	g.camera = camera;
 
 	glEnable(GL_BLEND);
@@ -1156,16 +1225,18 @@ int main()
 	double start_time = glfwGetTime();
 
 	// Controls
-	const char *focus_bodies[] = {"sun", "earth", "moon"};
-	static const char *current_focus_body = focus_bodies[2];
+	const char *focus_bodies[] = {"sun", "mercury", "venus", "earth", "moon", "mars"};
+	static const char *current_focus_body = focus_bodies[0];
 	int num_inscatter_points = 6;
 	int num_optical_depth_points = 6;
 	bool use_round_sphere = true;
+	bool use_round_normals = false;
 
 	double time = 0.;
-	float simulation_time = 0.;
-	float simulation_speed = 0.;
-	float target_simulation_speed = 0.;
+	float simulation_time = 0.f;
+	float simulation_speed = 0.f;
+	float target_simulation_speed = 0.f;
+	float max_simulation_speed = 1.f;
 
 	glStencilMask(0xff);
 	glClearStencil(0xff);
@@ -1193,12 +1264,17 @@ int main()
 			g.screen.dirty = false;
 		}
 
-		target_simulation_speed = move_planets ? .5f : 0.f;
+		target_simulation_speed = move_planets ? max_simulation_speed : 0.f;
 		simulation_speed = lerp_float(simulation_speed, target_simulation_speed, 0.1f);
 		simulation_time += simulation_speed * g.dt;
 
-		earth->set_position(4.f * glm::vec3(glm::cos(simulation_time), glm::sin(simulation_time), 0.));
-		moon->set_position(1.f * glm::vec3(glm::cos(3 * simulation_time), glm::sin(3 * simulation_time), 0.));
+		for (const auto info : planet_infos)
+		{
+			info.planet->set_position(info.distance * glm::vec3(glm::cos(info.revolution_frequency * simulation_time), glm::sin(info.revolution_frequency * simulation_time), 0.));
+			info.planet->set_rotation(glm::vec3(0.f, 0.f, simulation_time * info.rotation_frequency));
+		}
+		// earth->set_position(15.f * glm::vec3(glm::cos(simulation_time), glm::sin(simulation_time), 0.));
+		// moon->set_position(2.5f * glm::vec3(glm::cos(3 * simulation_time), glm::sin(3 * simulation_time), 0.));
 		sun->set_rotation(glm::vec3(0, 0, -0.4f * simulation_time));
 
 		solar_root->update();
@@ -1222,13 +1298,25 @@ int main()
 		{
 			set_pos(sun.get(), 0);
 		}
+		else if (strcmp(current_focus_body, "mercury") == 0)
+		{
+			set_pos(mercury.get(), 1);
+		}
+		else if (strcmp(current_focus_body, "venus") == 0)
+		{
+			set_pos(venus.get(), 2);
+		}
 		else if (strcmp(current_focus_body, "earth") == 0)
 		{
-			set_pos(earth.get(), 1);
+			set_pos(earth.get(), 3);
 		}
 		else if (strcmp(current_focus_body, "moon") == 0)
 		{
-			set_pos(moon.get(), 2);
+			set_pos(moon.get(), 4);
+		}
+		else if (strcmp(current_focus_body, "mars") == 0)
+		{
+			set_pos(mars.get(), 5);
 		}
 		else
 			camera_position = glm::vec3(0.f);
@@ -1241,10 +1329,19 @@ int main()
 				current_focus_body = "sun";
 				break;
 			case 1:
-				current_focus_body = "earth";
+				current_focus_body = "mercury";
 				break;
 			case 2:
+				current_focus_body = "venus";
+				break;
+			case 3:
+				current_focus_body = "earth";
+				break;
+			case 4:
 				current_focus_body = "moon";
+				break;
+			case 5:
+				current_focus_body = "mars";
 				break;
 			}
 		}
@@ -1274,6 +1371,7 @@ int main()
 				it->get()->get_material()->get_shader()->set_uniform_mat4fv("local_model", scene_element->get_transform().get_local_model_matrix());
 				it->get()->get_material()->get_shader()->set_uniform_mat4fv("vp", camera->camera()->get_vp());
 				it->get()->get_material()->get_shader()->set_uniform_mat4fv("model", (scene_element->get_model_matrix()));
+				it->get()->get_material()->get_shader()->set_uniform_bool("use_round_normals", use_round_normals);
 			}
 
 			glStencilFunc(GL_ALWAYS, static_cast<GLint>(index), 0xff);
@@ -1371,26 +1469,28 @@ int main()
 
 		if (g.interaction.show_ui)
 		{
-			ImGui::Begin("Atmosphere", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);
-			ImGui::DragFloat("Atmosphere size multiplier", &atmosphere_multiplier, 0.01f, 1.001f, 2.f);
-			ImGui::InputInt("num_inscatter_points", &num_inscatter_points);
-			ImGui::InputInt("num_optical_depth_points", &num_optical_depth_points);
-			ImGui::Checkbox("use_round_sphere", &use_round_sphere);
+			ImGui::Begin("atmosphere", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);
+			ImGui::DragFloat("atmosphere size multiplier", &atmosphere_multiplier, 0.01f, 1.001f, 2.f);
+			ImGui::InputInt("inscatter points", &num_inscatter_points);
+			ImGui::InputInt("optical depth points", &num_optical_depth_points);
+			ImGui::Checkbox("use round sphere", &use_round_sphere);
+			ImGui::Checkbox("use round normals", &use_round_normals);
 			ImGui::End();
 
-			ImGui::Begin("Solar system", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);
-			ImGui::Checkbox("Move planets", &move_planets);
-			ImGui::DragFloat("Simulation time", &simulation_time, 0.1f);
+			ImGui::Begin("solar system", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);
+			ImGui::Checkbox("move planets", &move_planets);
+			ImGui::DragFloat("simulation time", &simulation_time, 0.01f);
+			ImGui::DragFloat("simulation speed", &max_simulation_speed, 0.01f);
 			ImGui::End();
 
-			ImGui::Begin("Statistics", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);
+			ImGui::Begin("statistics", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);
 			ImGui::Text("fps %.0f", 1.f / g.dt);
 			ImGui::Text("camera distance %.0f", dynamic_cast<OrbitCameraController *>(g.camera.get())->distance());
 			ImGui::End();
 
-			ImGui::Begin("Camera", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);
+			ImGui::Begin("camera", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);
 
-			if (ImGui::BeginCombo("Focus body", current_focus_body))
+			if (ImGui::BeginCombo("focus body", current_focus_body))
 			{
 				for (int n = 0; n < IM_ARRAYSIZE(focus_bodies); n++)
 				{
