@@ -789,7 +789,9 @@ struct G
 
 	struct Interaction
 	{
+		bool prepick = false;
 		bool pick = false;
+		bool show_ui = true;
 		float min_distance;
 		uint8_t hovered_index;
 	} interaction;
@@ -845,7 +847,7 @@ public:
 private:
 	float m_distance;
 	float m_target_distance;
-	glm::vec3 m_target_rotation;
+	glm::vec3 m_target_rotation = glm::vec3(0.f);
 };
 
 void resize_callback(GLFWwindow *window, int width, int height)
@@ -867,6 +869,7 @@ void cursor_pos_callback(GLFWwindow *window, double xpos, double ypos)
 		float dtheta = 0.01f * delta.y;
 		g.camera->move(glm::vec2(dphi, dtheta));
 		g.interaction.pick = false;
+		g.interaction.prepick = false;
 		// g.camera->set_position(glm::vec3(camera_position.x * cos(dphi) - camera_position.y * sin(dphi), camera_position.x * sin(dphi) + camera_position.y * cos(dphi), camera_position.z + dtheta));
 	}
 	g.input.cursor_position = new_pos;
@@ -886,9 +889,29 @@ void mouse_button_callback(GLFWwindow *window, int button, int action, int mods)
 	case GLFW_MOUSE_BUTTON_LEFT:
 		if (action == GLFW_PRESS)
 		{
-			g.interaction.pick = true;
+			g.interaction.prepick = true;
+		}
+		else if (action == GLFW_RELEASE)
+		{
+			g.interaction.pick = g.interaction.prepick;
 		}
 		g.input.cursor_left_down = action == GLFW_PRESS;
+		break;
+
+	default:
+		break;
+	}
+}
+
+void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods)
+{
+	if (ImGui::GetIO().WantCaptureKeyboard)
+		return;
+	switch (key)
+	{
+	case GLFW_KEY_SPACE:
+		if (action == GLFW_PRESS)
+			g.interaction.show_ui = !g.interaction.show_ui;
 		break;
 
 	default:
@@ -928,6 +951,7 @@ void setup(GLFWwindow *&window)
 	glfwSetCursorPosCallback(window, cursor_pos_callback);
 	glfwSetScrollCallback(window, scroll_callback);
 	glfwSetMouseButtonCallback(window, mouse_button_callback);
+	glfwSetKeyCallback(window, key_callback);
 
 	// Setup Dear ImGui context
 	IMGUI_CHECKVERSION();
@@ -1058,7 +1082,7 @@ int main()
 	// auto dummy_normal = std::make_shared<Texture>("textures/dummy_normal.png");
 
 	// auto stars_texture = std::make_shared<Texture>("textures/2k_sun.jpg");
-	auto stars_texture = std::make_shared<Texture>("textures/2k_stars.jpg");
+	auto stars_texture = std::make_shared<Texture>("textures/starmap_g4k.png");
 
 	auto simple_texture_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/textured.frag");
 	auto sun_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/sun.frag");
@@ -1139,9 +1163,9 @@ int main()
 	bool use_round_sphere = true;
 
 	double time = 0.;
-	double simulation_time = 0.;
-	double simulation_speed = 0.;
-	double target_simulation_speed = 0.;
+	float simulation_time = 0.;
+	float simulation_speed = 0.;
+	float target_simulation_speed = 0.;
 
 	glStencilMask(0xff);
 	glClearStencil(0xff);
@@ -1169,14 +1193,15 @@ int main()
 			g.screen.dirty = false;
 		}
 
-		g_buffer->bind();
-		glEnable(GL_DEPTH_TEST);
-		glEnable(GL_CULL_FACE);
-		glEnable(GL_STENCIL_TEST);
+		target_simulation_speed = move_planets ? .5f : 0.f;
+		simulation_speed = lerp_float(simulation_speed, target_simulation_speed, 0.1f);
+		simulation_time += simulation_speed * g.dt;
 
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+		earth->set_position(4.f * glm::vec3(glm::cos(simulation_time), glm::sin(simulation_time), 0.));
+		moon->set_position(1.f * glm::vec3(glm::cos(3 * simulation_time), glm::sin(3 * simulation_time), 0.));
+		sun->set_rotation(glm::vec3(0, 0, -0.4f * simulation_time));
 
-		glViewport(0, 0, g.screen.width, g.screen.height);
+		solar_root->update();
 
 		camera->camera()->set_aspect((float)g.screen.width / g.screen.height);
 		glm::vec3 camera_position = camera->get_position();
@@ -1229,15 +1254,14 @@ int main()
 		// camera->set_rotation(cam_rot);
 		// camera->update();
 
-		target_simulation_speed = move_planets ? .5f : 0.f;
-		simulation_speed = lerp_float(simulation_speed, target_simulation_speed, 0.1f);
-		simulation_time += simulation_speed * g.dt;
+		g_buffer->bind();
+		glEnable(GL_DEPTH_TEST);
+		glEnable(GL_CULL_FACE);
+		glEnable(GL_STENCIL_TEST);
 
-		earth->set_position(4.f * glm::vec3(glm::cos(simulation_time), glm::sin(simulation_time), 0.));
-		moon->set_position(1.f * glm::vec3(glm::cos(3 * simulation_time), glm::sin(3 * simulation_time), 0.));
-		sun->set_rotation(glm::vec3(0, 0, -0.4f * simulation_time));
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-		solar_root->update();
+		glViewport(0, 0, g.screen.width, g.screen.height);
 
 		size_t index = 0;
 		for (auto it = drawables.begin(); it != drawables.end(); it++, index++)
@@ -1345,38 +1369,41 @@ int main()
 		glBindVertexArray(fullscreen_vao);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
-		ImGui::Begin("Atmosphere");
-		ImGui::DragFloat("Atmosphere size multiplier", &atmosphere_multiplier, 0.01f, 1.001f, 2.f);
-		ImGui::InputInt("num_inscatter_points", &num_inscatter_points);
-		ImGui::InputInt("num_optical_depth_points", &num_optical_depth_points);
-		ImGui::Checkbox("use_round_sphere", &use_round_sphere);
-		ImGui::End();
-
-		ImGui::Begin("Solar system");
-		ImGui::Checkbox("Move planets", &move_planets);
-		ImGui::End();
-
-		ImGui::Begin("Statistics");
-		ImGui::Text("fps %f", 1.f / g.dt);
-		ImGui::Text("camera distance %f", dynamic_cast<OrbitCameraController *>(g.camera.get())->distance());
-		ImGui::End();
-
-		ImGui::Begin("Camera");
-
-		if (ImGui::BeginCombo("Focus body", current_focus_body))
+		if (g.interaction.show_ui)
 		{
-			for (int n = 0; n < IM_ARRAYSIZE(focus_bodies); n++)
-			{
-				bool is_selected = (current_focus_body == focus_bodies[n]);
-				if (ImGui::Selectable(focus_bodies[n], is_selected))
-					current_focus_body = focus_bodies[n];
-				if (is_selected)
-					ImGui::SetItemDefaultFocus();
-			}
-			ImGui::EndCombo();
-		}
-		ImGui::End();
+			ImGui::Begin("Atmosphere", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);
+			ImGui::DragFloat("Atmosphere size multiplier", &atmosphere_multiplier, 0.01f, 1.001f, 2.f);
+			ImGui::InputInt("num_inscatter_points", &num_inscatter_points);
+			ImGui::InputInt("num_optical_depth_points", &num_optical_depth_points);
+			ImGui::Checkbox("use_round_sphere", &use_round_sphere);
+			ImGui::End();
 
+			ImGui::Begin("Solar system", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);
+			ImGui::Checkbox("Move planets", &move_planets);
+			ImGui::DragFloat("Simulation time", &simulation_time, 0.1f);
+			ImGui::End();
+
+			ImGui::Begin("Statistics", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);
+			ImGui::Text("fps %.0f", 1.f / g.dt);
+			ImGui::Text("camera distance %.0f", dynamic_cast<OrbitCameraController *>(g.camera.get())->distance());
+			ImGui::End();
+
+			ImGui::Begin("Camera", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);
+
+			if (ImGui::BeginCombo("Focus body", current_focus_body))
+			{
+				for (int n = 0; n < IM_ARRAYSIZE(focus_bodies); n++)
+				{
+					bool is_selected = (current_focus_body == focus_bodies[n]);
+					if (ImGui::Selectable(focus_bodies[n], is_selected))
+						current_focus_body = focus_bodies[n];
+					if (is_selected)
+						ImGui::SetItemDefaultFocus();
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::End();
+		}
 		ImGui::Render();
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 

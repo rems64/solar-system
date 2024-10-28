@@ -24,10 +24,9 @@ vec3 starness(float theta, float phi) {
     vec2 coord = vec2((phi + PI) / (2 * PI), theta / PI);
     // color = color / (color + vec3(1.0));
     // color = pow(color, vec3(1.0 / 2.2));
-    vec3 color = 3 * texture(s_stars, coord).rgb;
+    vec3 color = pow(texture(s_stars, coord).rgb, vec3(4));
     // return pow(color, vec3(2.2)) * (color + vec3(1.0));
-    vec3 c = pow(color, vec3(2.2));
-    return c / (vec3(1) - c);
+    return color;
 }
 
 void main() {
