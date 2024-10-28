@@ -41,10 +41,10 @@ void main() {
    gNormal = vec4(combined_normal, 1);
    // gAlbedo = vec4(1, 0, 0, 1);
    // gAlbedo = albedo;
-   gAlbedo = albedo + emissivness * vec4(emissive.rgb, 0.);
+   gAlbedo = albedo;
    // gAlbedo = vec4(0.5*combined_normal+0.5, 1);
    // metallic + roughness + emissiveness
-   gEmissive = vec4(emissive.rgb*emissivness, 1.);
+   gEmissive = vec4(2 * pow(emissive.rgb, vec3(2)) * emissivness, 1.);
    gPbr = vec4(0, 0.3 + (1 - specular) * (1 - 0.3), emissivness, 1);
    // gEmissive = vec4(vec3(0), 1);
 }

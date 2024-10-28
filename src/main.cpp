@@ -418,7 +418,7 @@ public:
 				break;
 			}
 		}
-		generate_texture(GL_UNSIGNED_BYTE, internal_format, mipmaps);
+		generate_texture(type, internal_format, mipmaps);
 	}
 
 	~Texture()
@@ -729,6 +729,11 @@ public:
 		return m_vp;
 	}
 
+	float fov() const
+	{
+		return m_fovy;
+	}
+
 	virtual void move(glm::vec2 delta) {};
 
 private:
@@ -782,6 +787,13 @@ struct G
 		bool dirty = true;
 	} screen;
 
+	struct Interaction
+	{
+		bool pick = false;
+		float min_distance;
+		uint8_t hovered_index;
+	} interaction;
+
 	std::shared_ptr<CameraController> camera;
 
 	double dt;
@@ -798,6 +810,7 @@ public:
 
 	void update_camera_distance()
 	{
+		m_target_distance = fmin(fmax(m_target_distance, g.interaction.min_distance), 50.f);
 		m_camera->set_position(glm::vec3(0.f, -m_distance, 0.f));
 	}
 
@@ -809,7 +822,10 @@ public:
 
 	void zoom(float delta) override
 	{
-		m_target_distance += -delta;
+		m_target_distance *= powf(1.2, -delta);
+		m_target_distance = fmin(fmax(m_target_distance, 0.3f), 50.f);
+		// std::cout << "delta: " << delta << std::endl;
+		// std::cout << "distance: " << m_target_distance << std::endl;
 		update_camera_distance();
 	}
 
@@ -819,6 +835,11 @@ public:
 		m_distance = lerp_float(m_distance, m_target_distance, 0.1f);
 		update_camera_distance();
 		CameraController::update();
+	}
+
+	float distance() const
+	{
+		return m_target_distance;
 	}
 
 private:
@@ -845,6 +866,7 @@ void cursor_pos_callback(GLFWwindow *window, double xpos, double ypos)
 		float dphi = 0.01f * delta.x;
 		float dtheta = 0.01f * delta.y;
 		g.camera->move(glm::vec2(dphi, dtheta));
+		g.interaction.pick = false;
 		// g.camera->set_position(glm::vec3(camera_position.x * cos(dphi) - camera_position.y * sin(dphi), camera_position.x * sin(dphi) + camera_position.y * cos(dphi), camera_position.z + dtheta));
 	}
 	g.input.cursor_position = new_pos;
@@ -862,12 +884,21 @@ void mouse_button_callback(GLFWwindow *window, int button, int action, int mods)
 	switch (button)
 	{
 	case GLFW_MOUSE_BUTTON_LEFT:
+		if (action == GLFW_PRESS)
+		{
+			g.interaction.pick = true;
+		}
 		g.input.cursor_left_down = action == GLFW_PRESS;
 		break;
 
 	default:
 		break;
 	}
+}
+
+void GLAPIENTRY OpenGLMessageCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar *message, const void *userParam)
+{
+	// std::cout << "[OpenGL Error](" << type << ") " << message << std::endl;
 }
 
 void setup(GLFWwindow *&window)
@@ -879,6 +910,7 @@ void setup(GLFWwindow *&window)
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
 
 	window = glfwCreateWindow(g.screen.width, g.screen.height, "Window", nullptr, nullptr);
 	if (!window)
@@ -888,6 +920,9 @@ void setup(GLFWwindow *&window)
 
 	glfwMakeContextCurrent(window);
 	gladLoadGL();
+
+	glEnable(GL_DEBUG_OUTPUT);
+	glDebugMessageCallback(OpenGLMessageCallback, 0);
 
 	glfwSetWindowSizeCallback(window, resize_callback);
 	glfwSetCursorPosCallback(window, cursor_pos_callback);
@@ -924,7 +959,7 @@ public:
 
 	void bind()
 	{
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_framebuffer);
+		glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffer);
 	}
 
 	void record(uint32_t width, uint32_t height)
@@ -954,10 +989,17 @@ public:
 		}
 		glDrawBuffers(attachments.size(), attachments.data());
 
+		// glTexImage2D(
+		// 	GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, width, height, 0,
+		// 	GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, NULL);
+
 		glGenRenderbuffers(1, &m_depth);
 		glBindRenderbuffer(GL_RENDERBUFFER, m_depth);
-		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
-		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_depth);
+		// glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
+		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
+		glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_depth);
 
 		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
 			std::cout << "[WARNING] Framebuffer not complete!" << std::endl;
@@ -1011,8 +1053,8 @@ int main()
 	auto earth_specular_texture = std::make_shared<Texture>("textures/2k_earth_specular_map.png");
 	auto earth_night_texture = std::make_shared<Texture>("textures/2k_earth_nightmap.jpg");
 	auto moon_texture = std::make_shared<Texture>("textures/2k_moon.jpg");
-	auto dummy_black = std::make_shared<Texture>(1, 1, 4, GL_FLOAT, GL_RGBA16F, true, DUMMY_BLACK);
-	auto dummy_normal = std::make_shared<Texture>(1, 1, 4, GL_FLOAT, GL_RGBA16F, true, DUMMY_NORMAL);
+	auto dummy_black = std::make_shared<Texture>(1, 1, 4, GL_UNSIGNED_BYTE, GL_UNSIGNED_BYTE, true, DUMMY_BLACK);
+	auto dummy_normal = std::make_shared<Texture>(1, 1, 4, GL_UNSIGNED_BYTE, GL_UNSIGNED_BYTE, true, DUMMY_NORMAL);
 	// auto dummy_normal = std::make_shared<Texture>("textures/dummy_normal.png");
 
 	// auto stars_texture = std::make_shared<Texture>("textures/2k_sun.jpg");
@@ -1097,6 +1139,17 @@ int main()
 	bool use_round_sphere = true;
 
 	double time = 0.;
+	double simulation_time = 0.;
+	double simulation_speed = 0.;
+	double target_simulation_speed = 0.;
+
+	glStencilMask(0xff);
+	glClearStencil(0xff);
+	glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+
+	bool just_selected_body = false;
+	glm::vec3 camera_lag = glm::vec3(0.f);
+	int current_focus_index = 0;
 
 	while (!glfwWindowShouldClose(window))
 	{
@@ -1108,13 +1161,6 @@ int main()
 		g.dt = new_time - time;
 		time = new_time;
 
-		g_buffer->bind();
-
-		glEnable(GL_DEPTH_TEST);
-		glEnable(GL_CULL_FACE);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glViewport(0, 0, g.screen.width, g.screen.height);
-
 		if (g.screen.dirty)
 		{
 			g_buffer->record(g.screen.width, g.screen.height);
@@ -1123,31 +1169,78 @@ int main()
 			g.screen.dirty = false;
 		}
 
+		g_buffer->bind();
+		glEnable(GL_DEPTH_TEST);
+		glEnable(GL_CULL_FACE);
+		glEnable(GL_STENCIL_TEST);
+
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+		glViewport(0, 0, g.screen.width, g.screen.height);
+
 		camera->camera()->set_aspect((float)g.screen.width / g.screen.height);
-		glm::vec3 camera_position;
+		glm::vec3 camera_position = camera->get_position();
+		constexpr float view_margin = 0.1f;
+		camera_lag = lerp_vec3(camera_lag, glm::vec3(0.f), 0.1f);
+		auto set_pos = [&](Sphere *obj, int index)
+		{
+			glm::vec3 new_target = obj->get_global_position();
+			if (current_focus_index != index)
+			{
+				camera_lag = camera->get_global_position() - new_target;
+			}
+			current_focus_index = index;
+			camera_position = new_target + camera_lag;
+			g.interaction.min_distance = (obj->radius() + view_margin) / tan(g.camera->camera()->fov());
+		};
 		if (strcmp(current_focus_body, "sun") == 0)
-			camera_position = sun->get_global_position();
+		{
+			set_pos(sun.get(), 0);
+		}
 		else if (strcmp(current_focus_body, "earth") == 0)
-			camera_position = earth->get_global_position();
+		{
+			set_pos(earth.get(), 1);
+		}
 		else if (strcmp(current_focus_body, "moon") == 0)
-			camera_position = moon->get_global_position();
+		{
+			set_pos(moon.get(), 2);
+		}
 		else
 			camera_position = glm::vec3(0.f);
+		if (just_selected_body && g.interaction.hovered_index < 255)
+		{
+			just_selected_body = false;
+			switch (g.interaction.hovered_index)
+			{
+			case 0:
+				current_focus_body = "sun";
+				break;
+			case 1:
+				current_focus_body = "earth";
+				break;
+			case 2:
+				current_focus_body = "moon";
+				break;
+			}
+		}
 
 		camera->set_position(camera_position);
 		camera->update();
 		// camera->set_rotation(cam_rot);
 		// camera->update();
 
-		if (move_planets)
-		{
-			earth->set_position(4.f * glm::vec3(glm::cos(time), glm::sin(time), 0.));
-			moon->set_position(1.f * glm::vec3(glm::cos(3 * time), glm::sin(3 * time), 0.));
-			sun->set_rotation(glm::vec3(0, 0, -0.4f * time));
-		}
+		target_simulation_speed = move_planets ? .5f : 0.f;
+		simulation_speed = lerp_float(simulation_speed, target_simulation_speed, 0.1f);
+		simulation_time += simulation_speed * g.dt;
+
+		earth->set_position(4.f * glm::vec3(glm::cos(simulation_time), glm::sin(simulation_time), 0.));
+		moon->set_position(1.f * glm::vec3(glm::cos(3 * simulation_time), glm::sin(3 * simulation_time), 0.));
+		sun->set_rotation(glm::vec3(0, 0, -0.4f * simulation_time));
+
 		solar_root->update();
 
-		for (auto it = drawables.begin(); it != drawables.end(); it++)
+		size_t index = 0;
+		for (auto it = drawables.begin(); it != drawables.end(); it++, index++)
 		{
 			SceneElement *scene_element = dynamic_cast<SceneElement *>(it->get());
 			it->get()->get_material()->bind();
@@ -1159,9 +1252,19 @@ int main()
 				it->get()->get_material()->get_shader()->set_uniform_mat4fv("model", (scene_element->get_model_matrix()));
 			}
 
+			glStencilFunc(GL_ALWAYS, static_cast<GLint>(index), 0xff);
+
 			it->get()->draw();
 		}
 
+		if (g.interaction.pick)
+		{
+			glReadPixels((GLint)g.input.cursor_position.x, (GLint)(g.screen.height - g.input.cursor_position.y), 1, 1, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, &g.interaction.hovered_index);
+			g.interaction.pick = false;
+			just_selected_body = true;
+		}
+
+		glDisable(GL_STENCIL_TEST);
 		glDisable(GL_DEPTH_TEST);
 		glDisable(GL_CULL_FACE);
 
@@ -1251,6 +1354,11 @@ int main()
 
 		ImGui::Begin("Solar system");
 		ImGui::Checkbox("Move planets", &move_planets);
+		ImGui::End();
+
+		ImGui::Begin("Statistics");
+		ImGui::Text("fps %f", 1.f / g.dt);
+		ImGui::Text("camera distance %f", dynamic_cast<OrbitCameraController *>(g.camera.get())->distance());
 		ImGui::End();
 
 		ImGui::Begin("Camera");
