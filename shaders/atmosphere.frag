@@ -11,7 +11,8 @@ out vec4 out_color;
 layout(binding = 0) uniform sampler2D s_galbedo;
 layout(binding = 1) uniform sampler2D s_gposition;
 layout(binding = 2) uniform sampler2D s_gnormal;
-layout(binding = 3) uniform sampler2D s_gpbr;
+layout(binding = 3) uniform sampler2D s_gemissive;
+layout(binding = 4) uniform sampler2D s_gpbr;
 
 uniform mat4 inv_vp;
 uniform vec2 viewport_size;
@@ -88,6 +89,7 @@ vec3 calculate_light(vec3 ray_origin, vec3 ray_direction, float ray_length, vec3
         inscatter_point += ray_direction * step_size;
     }
     float original_color_transmittance = exp(-view_ray_optical_depth);
+    // return vec3(exp(-view_ray_optical_depth));
     return original_color * original_color_transmittance + inscatter_light;
 }
 
@@ -137,6 +139,7 @@ void main() {
         vec3 point_in_atmosphere = camera_position + ray_direction * (dist_to_atmosphere + epsilon);
         vec3 light = calculate_light(point_in_atmosphere, ray_direction, dist_through_atmosphere - 2 * epsilon, albedo.rgb);
         color = light;
+        // color = albedo.rgb;
         // color = vec3(dist_through_atmosphere / planet_radius, 0, 0);
     } else {
         color = albedo.rgb;
@@ -144,9 +147,16 @@ void main() {
         // color = vec4(1, 0, 1, 1);
     }
 
-    if(emissivness < 0.5) {
-        color = color / (color + vec3(1.0));
-        color = pow(color, vec3(1.0 / 2.2));
-    }
+    // if(emissivness < 0.5) {
+    //     color = color / (color + vec3(1.0));
+    //     color = pow(color, vec3(1.0 / 2.2));
+    // }
+
+    // float gamma = 2.2;
+    float gamma = 1.;
+    float clamp_point = 2.;
+    color = (color * (vec3(1.) + color / pow(clamp_point, 2))) / (color + vec3(1.0));
+    // color = pow(color, vec3(1.0 / gamma));
+
     out_color = vec4(color, 1);
 }

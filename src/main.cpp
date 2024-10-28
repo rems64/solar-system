@@ -50,6 +50,16 @@ void add_float3_radius_angles(std::vector<float> &vector,
 	vector.push_back(radius * cos(theta));
 }
 
+glm::vec3 lerp_vec3(glm::vec3 a, glm::vec3 b, float t)
+{
+	return a * (1 - t) + b * t;
+}
+
+float lerp_float(float a, float b, float t)
+{
+	return a * (1 - t) + b * t;
+}
+
 char *readfile(const char *filepath)
 {
 	FILE *fp;
@@ -368,6 +378,13 @@ private:
 	unsigned int m_program;
 };
 
+enum DummyTexture
+{
+	DUMMY_NONE,
+	DUMMY_BLACK,
+	DUMMY_NORMAL,
+};
+
 class Texture
 {
 public:
@@ -380,13 +397,28 @@ public:
 		stbi_image_free(m_data);
 	}
 
-	Texture(uint32_t width, uint32_t height, uint32_t depth, GLenum type, GLenum internal_format, bool mipmaps = true, bool fill = false) : m_resource(0), m_data(nullptr), m_width(width), m_height(height), m_depth(depth), m_should_free(fill)
+	Texture(uint32_t width, uint32_t height, uint32_t depth, GLenum type, GLenum internal_format, bool mipmaps = true, enum DummyTexture dummy = DUMMY_NONE) : m_resource(0), m_data(nullptr), m_width(width), m_height(height), m_depth(depth), m_should_free(dummy != DUMMY_NONE)
 	{
-		if (fill)
+		if (dummy != DUMMY_NONE)
 		{
 			m_data = (unsigned char *)calloc(width * height * depth, sizeof(unsigned char));
+			switch (dummy)
+			{
+			case DUMMY_BLACK:
+				m_data[0] = 0;
+				m_data[1] = 0;
+				m_data[2] = 0;
+				m_data[3] = 0;
+				break;
+			case DUMMY_NORMAL:
+				m_data[0] = 0;
+				m_data[1] = 0;
+				m_data[2] = 255;
+				m_data[3] = 255;
+				break;
+			}
 		}
-		generate_texture(type, internal_format, mipmaps);
+		generate_texture(GL_UNSIGNED_BYTE, internal_format, mipmaps);
 	}
 
 	~Texture()
@@ -420,10 +452,14 @@ public:
 		glTexImage2D(GL_TEXTURE_2D, 0, internal_format, m_width, m_height,
 					 0, get_components(m_depth), type, m_data);
 
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
 		glBindImageTexture(0, m_resource, 0, GL_FALSE, 0, GL_READ_WRITE, internal_format);
 
@@ -721,39 +757,14 @@ public:
 	virtual void move(glm::vec2 delta) {};
 	virtual void zoom(float delta) {};
 
+	void update()
+	{
+		m_camera->update();
+		SceneElement::update();
+	}
+
 protected:
 	std::shared_ptr<Camera> m_camera;
-};
-
-class OrbitCameraController : public CameraController
-{
-public:
-	OrbitCameraController(float fovy, float aspect, float near, float far, float distance) : CameraController(fovy, aspect, near, far), m_distance(distance)
-	{
-		set_position(glm::vec3(0.f));
-		update_camera_distance();
-	}
-
-	void update_camera_distance()
-	{
-		m_camera->set_position(glm::vec3(0.f, -m_distance, 0.f));
-		update();
-	}
-
-	void move(glm::vec2 delta) override
-	{
-		add_rotation(glm::vec3(-delta.y, 0.f, -delta.x));
-		update();
-	}
-
-	void zoom(float delta) override
-	{
-		m_distance += -delta;
-		update_camera_distance();
-	}
-
-private:
-	float m_distance;
 };
 
 struct G
@@ -772,7 +783,49 @@ struct G
 	} screen;
 
 	std::shared_ptr<CameraController> camera;
+
+	double dt;
 } g;
+
+class OrbitCameraController : public CameraController
+{
+public:
+	OrbitCameraController(float fovy, float aspect, float near, float far, float distance) : CameraController(fovy, aspect, near, far), m_distance(distance), m_target_distance(distance)
+	{
+		set_position(glm::vec3(0.f));
+		update_camera_distance();
+	}
+
+	void update_camera_distance()
+	{
+		m_camera->set_position(glm::vec3(0.f, -m_distance, 0.f));
+	}
+
+	void move(glm::vec2 delta) override
+	{
+		m_target_rotation += glm::vec3(-delta.y, 0.f, -delta.x);
+		update();
+	}
+
+	void zoom(float delta) override
+	{
+		m_target_distance += -delta;
+		update_camera_distance();
+	}
+
+	void update()
+	{
+		set_rotation(lerp_vec3(get_rotation(), m_target_rotation, 0.1f));
+		m_distance = lerp_float(m_distance, m_target_distance, 0.1f);
+		update_camera_distance();
+		CameraController::update();
+	}
+
+private:
+	float m_distance;
+	float m_target_distance;
+	glm::vec3 m_target_rotation;
+};
 
 void resize_callback(GLFWwindow *window, int width, int height)
 {
@@ -941,7 +994,8 @@ int main()
 		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // color (HDR)
 		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // position (4 for alignment)
 		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // normal (4 for alignment)
-		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // metallic + roughness + emissiveness
+		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // emissive (4 for alignment)
+		FramebufferAttachment{.type = GL_FLOAT, .components_count = 4, .internal_format = GL_RGBA16F}, // metallic + roughness
 	};
 	auto g_buffer = std::make_shared<Framebuffer>(g.screen.width, g.screen.height, gbuffer_attachments);
 
@@ -957,7 +1011,9 @@ int main()
 	auto earth_specular_texture = std::make_shared<Texture>("textures/2k_earth_specular_map.png");
 	auto earth_night_texture = std::make_shared<Texture>("textures/2k_earth_nightmap.jpg");
 	auto moon_texture = std::make_shared<Texture>("textures/2k_moon.jpg");
-	auto dummy_black = std::make_shared<Texture>(1, 1, 4, GL_FLOAT, GL_RGBA16F, true, true);
+	auto dummy_black = std::make_shared<Texture>(1, 1, 4, GL_FLOAT, GL_RGBA16F, true, DUMMY_BLACK);
+	auto dummy_normal = std::make_shared<Texture>(1, 1, 4, GL_FLOAT, GL_RGBA16F, true, DUMMY_NORMAL);
+	// auto dummy_normal = std::make_shared<Texture>("textures/dummy_normal.png");
 
 	// auto stars_texture = std::make_shared<Texture>("textures/2k_sun.jpg");
 	auto stars_texture = std::make_shared<Texture>("textures/2k_stars.jpg");
@@ -968,7 +1024,7 @@ int main()
 
 	auto sun_material = std::make_shared<Material>(sun_shader, std::vector<std::shared_ptr<Texture>>{sun_texture});
 	auto earth_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{earth_texture, earth_normal_texture, earth_specular_texture, earth_night_texture});
-	auto moon_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{moon_texture, dummy_black, dummy_black, dummy_black});
+	auto moon_material = std::make_shared<Material>(simple_texture_shader, std::vector<std::shared_ptr<Texture>>{moon_texture, dummy_normal, dummy_black, dummy_black});
 	auto atmosphere_material = std::make_shared<Material>(atmosphere_shader, std::vector<std::shared_ptr<Texture>>{});
 
 	auto sun = std::make_shared<Sphere>(20, 40, 1.0f, sun_material);
@@ -1035,10 +1091,12 @@ int main()
 
 	// Controls
 	const char *focus_bodies[] = {"sun", "earth", "moon"};
-	static const char *current_focus_body = focus_bodies[0];
+	static const char *current_focus_body = focus_bodies[2];
 	int num_inscatter_points = 6;
 	int num_optical_depth_points = 6;
 	bool use_round_sphere = true;
+
+	double time = 0.;
 
 	while (!glfwWindowShouldClose(window))
 	{
@@ -1046,7 +1104,9 @@ int main()
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
 
-		double time = glfwGetTime() - start_time;
+		double new_time = glfwGetTime() - start_time;
+		g.dt = new_time - time;
+		time = new_time;
 
 		g_buffer->bind();
 
@@ -1133,7 +1193,7 @@ int main()
 			it->get()->bind();
 		}
 
-		glActiveTexture(GL_TEXTURE4);
+		glActiveTexture(GL_TEXTURE5);
 		stars_texture->bind();
 
 		compositing_shader->bind();

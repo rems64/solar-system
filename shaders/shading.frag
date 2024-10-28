@@ -5,12 +5,14 @@ in vec2 uv;
 layout(binding = 0) uniform sampler2D s_galbedo;
 layout(binding = 1) uniform sampler2D s_gposition;
 layout(binding = 2) uniform sampler2D s_gnormal;
-layout(binding = 3) uniform sampler2D s_gpbr;
+layout(binding = 3) uniform sampler2D s_gemissive;
+layout(binding = 4) uniform sampler2D s_gpbr;
 
 layout(location = 0) out vec4 out_albedo;
 layout(location = 1) out vec4 out_position;
 layout(location = 2) out vec4 out_normal;
-layout(location = 3) out vec4 out_pbr;
+layout(location = 3) out vec4 out_emissive;
+layout(location = 4) out vec4 out_pbr;
 
 uniform mat4 view_projection;
 
@@ -87,6 +89,7 @@ void main() {
     float foreground_mask = texture(s_galbedo, uv).a;
     vec3 position = texture(s_gposition, uv).rgb;
     vec3 normal = texture(s_gnormal, uv).rgb;
+    vec3 emissive = texture(s_gemissive, uv).rgb;
     vec4 pbr = texture(s_gpbr, uv).rgba;
     float metallic = pbr.r;
     float roughness = pbr.g;
@@ -130,10 +133,12 @@ void main() {
 
     // vec3 ambient = vec3(0.03) * albedo * ao;
     vec3 ambient = vec3(0.0);
-    vec3 color = emissiveness > 0.5 ? albedo.rgb : (ambient + Lo);
+    // vec3 color = emissiveness >= 0.1 ? albedo.rgb : (ambient + Lo);
+    vec3 color = ambient + Lo + emissive;
 
     out_albedo = vec4(color, albedo.a);
     out_position = vec4(position, 1);
     out_normal = vec4(normal, 1);
+    out_emissive = vec4(emissive, 1);
     out_pbr = vec4(pbr);
 }

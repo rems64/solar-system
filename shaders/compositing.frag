@@ -5,13 +5,15 @@ in vec2 uv;
 layout(binding = 0) uniform sampler2D s_albedo;
 layout(binding = 1) uniform sampler2D s_position;
 layout(binding = 2) uniform sampler2D s_normal;
-layout(binding = 3) uniform sampler2D s_pbr;
-layout(binding = 4) uniform sampler2D s_stars;
+layout(binding = 3) uniform sampler2D s_emissive;
+layout(binding = 4) uniform sampler2D s_pbr;
+layout(binding = 5) uniform sampler2D s_stars;
 
 layout(location = 0) out vec4 out_albedo;
 layout(location = 1) out vec4 out_position;
 layout(location = 2) out vec4 out_normal;
-layout(location = 3) out vec4 out_pbr;
+layout(location = 3) out vec4 out_emissive;
+layout(location = 4) out vec4 out_pbr;
 
 uniform mat4 view_projection;
 uniform vec3 camera_position;

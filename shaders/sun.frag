@@ -10,7 +10,8 @@ in VS_OUT {
 layout(location = 0) out vec4 gAlbedo;
 layout(location = 1) out vec4 gPosition;
 layout(location = 2) out vec4 gNormal;
-layout(location = 3) out vec4 gPbr;
+layout(location = 3) out vec4 gEmissive;
+layout(location = 4) out vec4 gPbr;
 
 uniform sampler2D tex;
 
@@ -20,7 +21,8 @@ void main() {
    gPosition = vec4(vs_in.position, 1);
    gNormal = vec4(vs_in.normal, 1);
    // gAlbedo = 1.0 * color;
-   gAlbedo = color;
+   gAlbedo = vec4(2 * color.rgb, color.a);
+   gEmissive = vec4(2 * color.rgb, color.a);;
 
    gPbr = vec4(0, 0, 1, 1);
    // gEmissive = vec4(texture_color, 1);
