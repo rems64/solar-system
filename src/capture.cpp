@@ -1,9 +1,8 @@
 #include "capture.hpp"
 
-extern "C"
-{
-#include <libavutil/opt.h>
+extern "C" {
 #include <libavutil/imgutils.h>
+#include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 }
 
@@ -21,15 +20,13 @@ void video_encode_example(const char *filename, AVCodecID codec_id)
 
     /* find the mpeg1 video encoder */
     codec = avcodec_find_encoder(codec_id);
-    if (!codec)
-    {
+    if (!codec) {
         fprintf(stderr, "Codec not found\n");
         exit(1);
     }
 
     c = avcodec_alloc_context3(codec);
-    if (!c)
-    {
+    if (!c) {
         fprintf(stderr, "Could not allocate video codec context\n");
         exit(1);
     }
@@ -55,22 +52,19 @@ void video_encode_example(const char *filename, AVCodecID codec_id)
         av_opt_set(c->priv_data, "preset", "slow", 0);
 
     /* open it */
-    if (avcodec_open2(c, codec, NULL) < 0)
-    {
+    if (avcodec_open2(c, codec, NULL) < 0) {
         fprintf(stderr, "Could not open codec\n");
         exit(1);
     }
 
     f = fopen(filename, "wb");
-    if (!f)
-    {
+    if (!f) {
         fprintf(stderr, "Could not open %s\n", filename);
         exit(1);
     }
 
     frame = av_frame_alloc();
-    if (!frame)
-    {
+    if (!frame) {
         fprintf(stderr, "Could not allocate video frame\n");
         exit(1);
     }
@@ -80,10 +74,8 @@ void video_encode_example(const char *filename, AVCodecID codec_id)
 
     /* the image can be allocated by any means and av_image_alloc() is
      * just the most convenient way if av_malloc() is to be used */
-    ret = av_image_alloc(frame->data, frame->linesize, c->width, c->height,
-                         c->pix_fmt, 32);
-    if (ret < 0)
-    {
+    ret = av_image_alloc(frame->data, frame->linesize, c->width, c->height, c->pix_fmt, 32);
+    if (ret < 0) {
         fprintf(stderr, "Could not allocate raw picture buffer\n");
         exit(1);
     }
@@ -91,20 +83,17 @@ void video_encode_example(const char *filename, AVCodecID codec_id)
     uint8_t *image_data = new uint8_t[4 * c->width * c->height];
     /* encode 10 second of video */
     int frame_count = 250;
-    for (i = 0; i < frame_count; i++)
-    {
+    for (i = 0; i < frame_count; i++) {
         av_init_packet(&pkt);
-        pkt.data = NULL; // packet data will be allocated by the encoder
+        pkt.data = NULL;  // packet data will be allocated by the encoder
         pkt.size = 0;
         pkt.pts = i;
 
         fflush(stdout);
         /* prepare a dummy image */
         /* Y */
-        for (y = 0; y < c->height; y++)
-        {
-            for (x = 0; x < c->width; x++)
-            {
+        for (y = 0; y < c->height; y++) {
+            for (x = 0; x < c->width; x++) {
                 uint8_t val = (x % 40 >= (40 * ((float)i / (float)frame_count))) ? 255 : 0;
                 // val = 255;
                 uint8_t r = val;
@@ -119,29 +108,31 @@ void video_encode_example(const char *filename, AVCodecID codec_id)
                 // frame->data[2][y * frame->linesize[2] + x] = (uint8_t)(v + 0.615) / 1.230;
             }
         }
-        SwsContext *ctx = sws_getContext(c->width, c->height,
+        SwsContext *ctx = sws_getContext(c->width,
+                                         c->height,
                                          AV_PIX_FMT_RGBA,
-                                         c->width, c->height,
+                                         c->width,
+                                         c->height,
                                          AV_PIX_FMT_YUV420P,
-                                         0, 0, 0, 0);
+                                         0,
+                                         0,
+                                         0,
+                                         0);
         uint8_t *inData[1] = {image_data};
 
         int inLinesize[1] = {4 * c->width};
-        sws_scale(ctx, inData, inLinesize, 0, c->height,
-                  frame->data, frame->linesize);
+        sws_scale(ctx, inData, inLinesize, 0, c->height, frame->data, frame->linesize);
 
         frame->pts = i;
 
         /* encode the image */
         ret = avcodec_encode_video2(c, &pkt, frame, &got_output);
-        if (ret < 0)
-        {
+        if (ret < 0) {
             fprintf(stderr, "Error encoding frame\n");
             exit(1);
         }
 
-        if (got_output)
-        {
+        if (got_output) {
             printf("Write frame %3d (size=%5d)\n", i, pkt.size);
             fwrite(pkt.data, 1, pkt.size, f);
             av_free_packet(&pkt);
@@ -149,19 +140,16 @@ void video_encode_example(const char *filename, AVCodecID codec_id)
     }
 
     /* get the delayed frames */
-    for (got_output = 1; got_output; i++)
-    {
+    for (got_output = 1; got_output; i++) {
         fflush(stdout);
 
         ret = avcodec_encode_video2(c, &pkt, NULL, &got_output);
-        if (ret < 0)
-        {
+        if (ret < 0) {
             fprintf(stderr, "Error encoding frame\n");
             exit(1);
         }
 
-        if (got_output)
-        {
+        if (got_output) {
             printf("Write frame %3d (size=%5d)\n", i, pkt.size);
             fwrite(pkt.data, 1, pkt.size, f);
             av_free_packet(&pkt);
