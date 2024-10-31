@@ -1,0 +1,53 @@
+CXXFLAGS = -g
+# GLFLAGS = -lglfw -lGL
+GLFLAGS = 
+
+CP = cp
+RM = rm
+
+LIBAVCODECS = 
+# LIBAVCODECS = -lavcodec -lavformat -lavutil -lswscale
+
+BUILDDIR = build
+SRCDIR = src
+LIBDIR = lib
+SHADERS_PREFIX = $(BUILDDIR)/shaders/
+
+SHADERS_NAMES = atmosphere.frag base.vert fullscreen.vert compositing.frag shading.frag sun.frag textured.frag
+SHADERS = $(addprefix $(SHADERS_PREFIX),$(SHADERS_NAMES))
+
+IMGUI_RAD = imgui.cpp imgui_draw.cpp imgui_tables.cpp imgui_widgets.cpp backends/imgui_impl_opengl3.cpp backends/imgui_impl_glfw.cpp
+IMGUI_SRC = $(addprefix $(LIBDIR)/imgui/,$(IMGUI_RAD))
+IMGUI_TMP := $(subst backends/,,$(IMGUI_RAD))
+IMGUI_OBJ := $(addprefix $(LIBDIR)/,$(subst .cpp,.o,$(IMGUI_TMP)))
+
+all: $(BUILDDIR)/main
+
+$(BUILDDIR)/main : $(SRCDIR)/main.cpp $(LIBDIR)/glad.o $(IMGUI_OBJ) | $(SHADERS) $(BUILDDIR)
+	$(CXX) $(SRCDIR)/main.cpp $(LIBDIR)/glad.o $(IMGUI_OBJ) $(GLFLAGS) $(LIBAVCODECS) $(CXXFLAGS) -I include/ -I $(LIBDIR)/imgui/ -I $(LIBDIR)/imgui/backends/ -o $@
+
+$(LIBDIR)/glad.o : $(SRCDIR)/glad.c
+	$(CXX) $(SRCDIR)/glad.c -I include/ -c -o $(LIBDIR)/glad.o
+
+$(BUILDDIR)/shaders/%.vert: shaders/%.vert | $(BUILDDIR)
+	$(CP) shaders/$*.vert $(BUILDDIR)/shaders/$*.vert
+
+$(BUILDDIR)/shaders/%.frag: shaders/%.frag | $(BUILDDIR)
+	$(CP) shaders/$*.frag $(BUILDDIR)/shaders/$*.frag
+
+$(LIBDIR)/%.o: $(LIBDIR)/imgui/%.cpp
+	$(CXX) $^ -c -I $(LIBDIR)/imgui/ -o $(LIBDIR)/$*.a
+
+$(LIBDIR)/%.o: $(LIBDIR)/imgui/backends/%.cpp
+	$(CXX) $^ -c -I $(LIBDIR)/imgui/ -o $(LIBDIR)/$*.o
+
+# Create the build directory
+$(BUILDDIR):
+	mkdir -p $@
+	mkdir -p $@/shaders
+
+run: $(BUILDDIR)/main
+	./$(BUILDDIR)/main
+
+clean::
+	@$(RM) -rf $(BUILDDIR)

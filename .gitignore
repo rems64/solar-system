@@ -5,3 +5,10 @@ bin/
 build/
 textures/
 compile_commands.json
+
+CMake
+tests/
+examples/
+
+.github
+docs/

@@ -1423,7 +1423,7 @@ int main()
 
     // auto atmosphere = std::make_shared<Sphere>(20, 40, earth->radius() * 1.5f,
     // atmosphere_material, true);
-    float atmosphere_multiplier = 1.15f;
+    float atmosphere_multiplier = 1.151f;
     bool move_planets = false;
 
     drawables.push_back(sun);
@@ -1551,7 +1551,7 @@ int main()
     float max_simulation_speed = 1.f;
 
     float bloom_filter_size = 0.01f;
-    float bloom_blend_factor = 0.06f;
+    float bloom_blend_factor = 0.162f;
     float white_point_value = 4.f;
 
     glStencilMask(0xff);
