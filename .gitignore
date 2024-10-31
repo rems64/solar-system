@@ -2,5 +2,6 @@
 .cache
 
 bin/
+build/
 textures/
 compile_commands.json
