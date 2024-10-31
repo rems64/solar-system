@@ -34,6 +34,8 @@ std::vector<unsigned int> fullscreen_rect_indices = {
 };
 // clang-format on
 
+unsigned int fullscreen_vao;
+
 void error_callback(int error, const char *description)
 {
     std::cout << "Error: " << description << std::endl;
@@ -279,7 +281,7 @@ constexpr GLenum get_components(const uint32_t depth)
 }
 
 class Shader {
-   public:
+public:
     Shader(const char *vertex_path, const char *fragment_path)
     {
         create_shader(vertex_path, fragment_path, &m_program);
@@ -326,7 +328,7 @@ class Shader {
         glUniform1i(glGetUniformLocation(m_program, name), value);
     }
 
-   private:
+private:
     unsigned int m_program;
 };
 
@@ -338,7 +340,7 @@ enum DummyTexture {
 };
 
 class Texture {
-   public:
+public:
     Texture(const char *path) : m_resource{0}, m_data(nullptr)
     {
         m_data = stbi_load(path, &m_width, &m_height, &m_depth, 0);
@@ -354,7 +356,8 @@ class Texture {
             GLenum type,
             GLenum internal_format,
             bool mipmaps = true,
-            enum DummyTexture dummy = DUMMY_NONE)
+            enum DummyTexture dummy = DUMMY_NONE,
+            bool clamp = false)
         : m_resource(0),
           m_data(nullptr),
           m_width(width),
@@ -387,7 +390,7 @@ class Texture {
                     break;
             }
         }
-        generate_texture(type, internal_format, mipmaps);
+        generate_texture(type, internal_format, mipmaps, clamp);
     }
 
     ~Texture()
@@ -414,8 +417,11 @@ class Texture {
         }
     }
 
-   public:
-    void generate_texture(GLenum type, GLenum internal_format, bool mipmaps = true)
+public:
+    void generate_texture(GLenum type,
+                          GLenum internal_format,
+                          bool mipmaps = true,
+                          bool clamp = false)
     {
         delete_texture();
 
@@ -433,10 +439,14 @@ class Texture {
                      type,
                      m_data);
 
-        // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        if (clamp) {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        }
+        else {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        }
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -447,7 +457,7 @@ class Texture {
         glGenerateMipmap(GL_TEXTURE_2D);
     }
 
-   private:
+private:
     int32_t m_width;
     int32_t m_height;
     int32_t m_depth;
@@ -458,7 +468,7 @@ class Texture {
 };
 
 class Material {
-   public:
+public:
     Material(std::shared_ptr<Shader> shader, std::vector<std::shared_ptr<Texture>> textures)
         : m_shader(shader), m_textures(textures){};
 
@@ -479,13 +489,13 @@ class Material {
         return m_shader;
     };
 
-   private:
+private:
     std::shared_ptr<Shader> m_shader;
     std::vector<std::shared_ptr<Texture>> m_textures;
 };
 
 class Drawable {
-   public:
+public:
     Drawable(std::shared_ptr<Material> material) : m_material(material){};
     ~Drawable() = default;
 
@@ -499,12 +509,12 @@ class Drawable {
         return m_material;
     };
 
-   private:
+private:
     std::shared_ptr<Material> m_material;
 };
 
 class SceneElement {
-   public:
+public:
     SceneElement() : m_transform{}, m_parent(nullptr), m_children{} {};
     ~SceneElement() = default;
 
@@ -587,16 +597,16 @@ class SceneElement {
         parent->add_child(this);
     }
 
-   protected:
+protected:
     Transform m_transform;
 
-   private:
+private:
     SceneElement *m_parent;
     std::set<SceneElement *> m_children;
 };
 
 class Mesh : public Drawable, public SceneElement {
-   public:
+public:
     Mesh(std::shared_ptr<Material> material)
         : Drawable(material), m_vao(0), m_vertices{}, m_indices{} {};
 
@@ -645,7 +655,7 @@ class Mesh : public Drawable, public SceneElement {
         glDrawElements(GL_TRIANGLES, m_indices.size(), GL_UNSIGNED_INT, 0);
     }
 
-   protected:
+protected:
     std::vector<float> m_vertices;
     std::vector<unsigned int> m_indices;
 
@@ -653,7 +663,7 @@ class Mesh : public Drawable, public SceneElement {
 };
 
 class Sphere : public Mesh {
-   public:
+public:
     Sphere(size_t rings,
            size_t segments,
            float radius,
@@ -673,12 +683,12 @@ class Sphere : public Mesh {
         return m_radius;
     }
 
-   private:
+private:
     float m_radius;
 };
 
 class ComputeShader {
-   public:
+public:
     ComputeShader(const char *shader_path)
     {
         create_compute_shader(shader_path, &m_program);
@@ -695,12 +705,12 @@ class ComputeShader {
             glGetUniformLocation(m_program, name), 1, GL_FALSE, glm::value_ptr(matrix));
     }
 
-   private:
+private:
     unsigned int m_program;
 };
 
 class Camera : public SceneElement {
-   public:
+public:
     Camera(float fovy, float aspect, float near, float far)
         : m_target(glm::vec3(0)),
           m_projection(glm::mat4(1.)),
@@ -743,7 +753,7 @@ class Camera : public SceneElement {
 
     virtual void move(glm::vec2 delta) {};
 
-   private:
+private:
     float m_fovy;
     float m_aspect;
     float m_near;
@@ -755,7 +765,7 @@ class Camera : public SceneElement {
 };
 
 class CameraController : public SceneElement {
-   public:
+public:
     CameraController(float fovy, float aspect, float near, float far)
     {
         m_camera = std::make_shared<Camera>(fovy, aspect, near, far);
@@ -777,7 +787,7 @@ class CameraController : public SceneElement {
         SceneElement::update();
     }
 
-   protected:
+protected:
     std::shared_ptr<Camera> m_camera;
 };
 
@@ -807,7 +817,7 @@ struct G {
 } g;
 
 class OrbitCameraController : public CameraController {
-   public:
+public:
     OrbitCameraController(float fovy, float aspect, float near, float far, float distance)
         : CameraController(fovy, aspect, near, far),
           m_distance(distance),
@@ -850,7 +860,7 @@ class OrbitCameraController : public CameraController {
         return m_target_distance;
     }
 
-   private:
+private:
     float m_distance;
     float m_target_distance;
     glm::vec3 m_target_rotation = glm::vec3(0.f);
@@ -982,7 +992,7 @@ struct FramebufferAttachment {
 };
 
 class Framebuffer {
-   public:
+public:
     Framebuffer(uint32_t width, uint32_t height, std::vector<FramebufferAttachment> attachments)
         : m_width(width), m_height(height), m_attachments(attachments)
     {
@@ -1007,8 +1017,14 @@ class Framebuffer {
         // TODO: a "default" texture is definitely not the way to do it...
         size_t i = 0;
         for (auto it = m_attachments.begin(); it != m_attachments.end(); it++, i++) {
-            auto buffer = std::make_shared<Texture>(
-                width, height, it->components_count, it->type, it->internal_format, false);
+            auto buffer = std::make_shared<Texture>(width,
+                                                    height,
+                                                    it->components_count,
+                                                    it->type,
+                                                    it->internal_format,
+                                                    false,
+                                                    DUMMY_NONE,
+                                                    true);
             glFramebufferTexture2D(GL_FRAMEBUFFER,
                                    GL_COLOR_ATTACHMENT0 + i,
                                    GL_TEXTURE_2D,
@@ -1047,7 +1063,7 @@ class Framebuffer {
         return m_buffers;
     };
 
-   private:
+private:
     uint32_t m_width;
     uint32_t m_height;
     uint32_t m_depth;
@@ -1055,6 +1071,246 @@ class Framebuffer {
     std::vector<std::shared_ptr<Texture>> m_buffers;
 
     unsigned int m_framebuffer;
+};
+
+struct BloomMip {
+    glm::vec2 size;
+    glm::ivec2 int_size;
+    unsigned int texture;
+};
+
+class BloomFramebuffer {
+public:
+    BloomFramebuffer() : m_init{false} {};
+    ~BloomFramebuffer(){};
+
+    void destroy()
+    {
+        for (int i = 0; i < m_mipchain.size(); i++) {
+            glDeleteTextures(1, &m_mipchain[i].texture);
+            m_mipchain[i].texture = 0;
+        }
+        glDeleteFramebuffers(1, &m_fbo);
+        m_fbo = 0;
+        m_init = false;
+    }
+
+    void bind()
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+    }
+
+    const std::vector<BloomMip> &mipchain() const
+    {
+        return m_mipchain;
+    }
+    bool init(size_t window_width, size_t window_height, size_t chain_length)
+    {
+        if (m_init)
+            return true;
+
+        glGenFramebuffers(1, &m_fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+
+        glm::vec2 mip_size((float)window_width, (float)window_height);
+        glm::ivec2 mip_int_size((int)window_width, (int)window_height);
+        // Safety check
+        if (window_width > (unsigned int)INT_MAX || window_height > (unsigned int)INT_MAX) {
+            std::cerr << "Window size conversion overflow - cannot build bloom FBO!\n";
+            return false;
+        }
+
+        for (unsigned int i = 0; i < chain_length; i++) {
+            BloomMip mip;
+
+            mip_size *= 0.5f;
+            mip_int_size /= 2;
+            mip.size = mip_size;
+            mip.int_size = mip_int_size;
+
+            glGenTextures(1, &mip.texture);
+            glBindTexture(GL_TEXTURE_2D, mip.texture);
+            // we are downscaling an HDR color buffer, so we need a float texture format
+            glTexImage2D(GL_TEXTURE_2D,
+                         0,
+                         GL_R11F_G11F_B10F,
+                         (int)mip_size.x,
+                         (int)mip_size.y,
+                         0,
+                         GL_RGB,
+                         GL_FLOAT,
+                         nullptr);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+            m_mipchain.emplace_back(mip);
+        }
+
+        glFramebufferTexture2D(
+            GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_mipchain[0].texture, 0);
+
+        // setup attachments
+        unsigned int attachments[1] = {GL_COLOR_ATTACHMENT0};
+        glDrawBuffers(1, attachments);
+
+        // check completion status
+        int status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            std::cerr << "Failed to build bloom framebuffer " << status << std::endl;
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return false;
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        m_init = true;
+        return true;
+    }
+
+private:
+    bool m_init = false;
+    unsigned int m_fbo;
+    std::vector<BloomMip> m_mipchain = {};
+};
+
+class BloomEffect {
+public:
+    BloomEffect() = default;
+
+    ~BloomEffect()
+    {
+        destroy();
+    };
+
+    bool init(unsigned int window_width, unsigned int window_height)
+    {
+        if (m_init)
+            return true;
+        m_src_viewport_size = glm::ivec2(window_width, window_height);
+        m_src_viewport_size_float = glm::vec2((float)window_width, (float)window_height);
+
+        // Framebuffer
+        const unsigned int num_bloom_mips = 5;  // Experiment with this value
+        bool status = m_fbo.init(window_width, window_height, num_bloom_mips);
+        if (!status) {
+            std::cerr << "Failed to initialize bloom FBO - cannot create bloom renderer!\n";
+            return false;
+        }
+
+        // Shaders
+        m_downsample_shader = std::make_shared<Shader>("shaders/fullscreen.vert",
+                                                       "shaders/bloom_downsample.frag");
+        m_upsample_shader = std::make_shared<Shader>("shaders/fullscreen.vert",
+                                                     "shaders/bloom_upsample.frag");
+
+        // Downsample
+        m_downsample_shader->bind();
+        m_downsample_shader->set_uniform_int("src_texture", 0);
+
+        // Upsample
+        m_upsample_shader->bind();
+        m_upsample_shader->set_uniform_int("src_texture", 0);
+
+        m_init = true;
+        return true;
+    };
+
+    void destroy()
+    {
+        m_fbo.destroy();
+        m_init = false;
+    };
+
+    void render_bloom_texture(unsigned int src_texture, float filter_radius)
+    {
+        m_fbo.bind();
+
+        render_downsamples(src_texture);
+        render_upsamples(filter_radius);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        // Restore viewport
+        glViewport(0, 0, m_src_viewport_size.x, m_src_viewport_size.y);
+    }
+
+    unsigned int bloom_texture()
+    {
+        return m_fbo.mipchain()[0].texture;
+    }
+
+private:
+    void render_downsamples(unsigned int src_texture)
+    {
+        const std::vector<BloomMip> &mipchain = m_fbo.mipchain();
+
+        m_downsample_shader->bind();
+        m_downsample_shader->set_uniform_vec2fv("src_resolution", m_src_viewport_size_float);
+
+        // Bind src_texture (HDR color buffer) as initial texture input
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, src_texture);
+
+        // Progressively downsample through the mip chain
+        for (int i = 0; i < mipchain.size(); i++) {
+            const BloomMip &mip = mipchain[i];
+            glViewport(0, 0, mip.size.x, mip.size.y);
+            glFramebufferTexture2D(
+                GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mip.texture, 0);
+
+            // Render screen-filled quad of resolution of current mip
+            glBindVertexArray(fullscreen_vao);
+            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+            glBindVertexArray(0);
+
+            // Set current mip resolution as src_resolution for next iteration
+            m_downsample_shader->set_uniform_vec2fv("src_resolution", mip.size);
+            // Set current mip as texture input for next iteration
+            glBindTexture(GL_TEXTURE_2D, mip.texture);
+        }
+    }
+    void render_upsamples(float filter_radius)
+    {
+        const std::vector<BloomMip> &mipchain = m_fbo.mipchain();
+
+        m_upsample_shader->bind();
+        m_upsample_shader->set_uniform_float("filter_radius", filter_radius);
+
+        // Enable additive blending
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE);
+        glBlendEquation(GL_FUNC_ADD);
+
+        for (int i = mipchain.size() - 1; i > 0; i--) {
+            const BloomMip &mip = mipchain[i];
+            const BloomMip &nextMip = mipchain[i - 1];
+
+            // Bind viewport and texture from where to read
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, mip.texture);
+
+            // Set framebuffer render target (we write to this texture)
+            glViewport(0, 0, nextMip.size.x, nextMip.size.y);
+            glFramebufferTexture2D(
+                GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, nextMip.texture, 0);
+
+            // Render screen-filled quad of resolution of current mip
+            glBindVertexArray(fullscreen_vao);
+            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+            glBindVertexArray(0);
+        }
+
+        // Disable additive blending
+        // glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA); // Restore if this was default
+        glDisable(GL_BLEND);
+    }
+
+    bool m_init;
+    BloomFramebuffer m_fbo;
+    glm::ivec2 m_src_viewport_size;
+    glm::vec2 m_src_viewport_size_float;
+    std::shared_ptr<Shader> m_downsample_shader;
+    std::shared_ptr<Shader> m_upsample_shader;
 };
 
 int main()
@@ -1090,6 +1346,9 @@ int main()
         g.screen.width, g.screen.height, gbuffer_attachments);
 
     auto shading_framebuffer = std::make_shared<Framebuffer>(
+        g.screen.width, g.screen.height, gbuffer_attachments);
+
+    auto atmosphere_framebuffer = std::make_shared<Framebuffer>(
         g.screen.width, g.screen.height, gbuffer_attachments);
 
     auto composite_framebuffer = std::make_shared<Framebuffer>(
@@ -1129,7 +1388,7 @@ int main()
     auto simple_texture_shader = std::make_shared<Shader>("shaders/base.vert",
                                                           "shaders/textured.frag");
     auto sun_shader = std::make_shared<Shader>("shaders/base.vert", "shaders/sun.frag");
-    auto atmosphere_shader = std::make_shared<Shader>("shaders/compositing.vert",
+    auto atmosphere_shader = std::make_shared<Shader>("shaders/fullscreen.vert",
                                                       "shaders/atmosphere.frag");
 
     auto sun_material = std::make_shared<Material>(
@@ -1249,10 +1508,13 @@ int main()
     simple_texture_shader->set_uniform_vec3fv("tint", glm::vec3(1, 0.5, 0.5));
 
     // Deferred shading
-    auto shading_shader = std::make_shared<Shader>("shaders/shading.vert", "shaders/shading.frag");
-    auto compositing_shader = std::make_shared<Shader>("shaders/compositing.vert",
+    auto shading_shader = std::make_shared<Shader>("shaders/fullscreen.vert",
+                                                   "shaders/shading.frag");
+    auto compositing_shader = std::make_shared<Shader>("shaders/fullscreen.vert",
                                                        "shaders/compositing.frag");
-    unsigned int fullscreen_vao, fullscreen_vbo, fullscreen_ebo;
+    auto presentation_shader = std::make_shared<Shader>("shaders/fullscreen.vert",
+                                                        "shaders/presentation.frag");
+    unsigned int fullscreen_vbo, fullscreen_ebo;
     glGenVertexArrays(1, &fullscreen_vao);
     glGenBuffers(1, &fullscreen_vbo);
     glGenBuffers(1, &fullscreen_ebo);
@@ -1280,13 +1542,17 @@ int main()
     int num_inscatter_points = 6;
     int num_optical_depth_points = 6;
     bool use_round_sphere = true;
-    bool use_round_normals = false;
+    bool use_round_normals = true;
 
     double time = 0.;
     float simulation_time = 0.f;
     float simulation_speed = 0.f;
     float target_simulation_speed = 0.f;
     float max_simulation_speed = 1.f;
+
+    float bloom_filter_size = 0.01f;
+    float bloom_blend_factor = 0.06f;
+    float white_point_value = 4.f;
 
     glStencilMask(0xff);
     glClearStencil(0xff);
@@ -1295,6 +1561,9 @@ int main()
     bool just_selected_body = false;
     glm::vec3 camera_lag = glm::vec3(0.f);
     int current_focus_index = 0;
+
+    BloomEffect bloom_effect;
+    bloom_effect.init(g.screen.width, g.screen.height);
 
     while (!glfwWindowShouldClose(window)) {
         ImGui_ImplOpenGL3_NewFrame();
@@ -1309,6 +1578,8 @@ int main()
             g_buffer->record(g.screen.width, g.screen.height);
             composite_framebuffer->record(g.screen.width, g.screen.height);
             shading_framebuffer->record(g.screen.width, g.screen.height);
+            atmosphere_framebuffer->record(g.screen.width, g.screen.height);
+            bloom_effect.init(g.screen.width, g.screen.height);
             g.screen.dirty = false;
         }
 
@@ -1478,7 +1749,8 @@ int main()
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
         // Atmosphere
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        // glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        atmosphere_framebuffer->bind();
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glViewport(0, 0, g.screen.width, g.screen.height);
         i = 0;
@@ -1526,14 +1798,36 @@ int main()
         glBindVertexArray(fullscreen_vao);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
+        bloom_effect.render_bloom_texture(atmosphere_framebuffer->get_buffers()[0]->get_resource(),
+                                          bloom_filter_size);
+
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glViewport(0, 0, g.screen.width, g.screen.height);
+
+        buffers = atmosphere_framebuffer->get_buffers();
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, buffers[0]->get_resource());
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, bloom_effect.bloom_texture());
+        presentation_shader->bind();
+        presentation_shader->set_uniform_float("bloom_blend_factor", bloom_blend_factor);
+        presentation_shader->set_uniform_float("white_point_value", white_point_value);
+
+        glBindVertexArray(fullscreen_vao);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
         if (g.interaction.show_ui) {
-            ImGui::Begin("atmosphere", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);
+            ImGui::Begin("rendering", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);
             ImGui::DragFloat(
                 "atmosphere size multiplier", &atmosphere_multiplier, 0.01f, 1.001f, 2.f);
             ImGui::InputInt("inscatter points", &num_inscatter_points);
             ImGui::InputInt("optical depth points", &num_optical_depth_points);
             ImGui::Checkbox("use round sphere", &use_round_sphere);
             ImGui::Checkbox("use round normals", &use_round_normals);
+            ImGui::DragFloat("bloom filter radius", &bloom_filter_size, 0.0001f);
+            ImGui::DragFloat("bloom blend factor", &bloom_blend_factor, 0.0001f, 0.f, 1.f);
+            ImGui::DragFloat("white point value", &white_point_value, 0.01f, 0.f);
             ImGui::End();
 
             ImGui::Begin("solar system", nullptr, ImGuiWindowFlags_NoFocusOnAppearing);

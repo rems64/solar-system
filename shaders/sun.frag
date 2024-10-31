@@ -21,9 +21,9 @@ void main() {
    gPosition = vec4(vs_in.position, 1);
    gNormal = vec4(vs_in.normal, 1);
    // gAlbedo = 1.0 * color;
-   gAlbedo = vec4(2 * color.rgb, color.a);
-   gEmissive = vec4(2 * color.rgb, color.a);
-   ;
+   float emission_factor = 4;
+   gAlbedo = vec4(emission_factor * color.rgb, color.a);
+   gEmissive = vec4(emission_factor * color.rgb, color.a);
 
    gPbr = vec4(0, 0, 1, 1);
    // gEmissive = vec4(texture_color, 1);

@@ -1,48 +1,52 @@
 CXXFLAGS = -g
 GLFLAGS = -lglfw -lGL
 
+CP = cp
+RM = rm
+
 # LIBAVCODECS = 
 LIBAVCODECS = -lavcodec -lavformat -lavutil -lswscale
 
-SHADERS_PREFIX = bin/shaders/
-SHADERS_NAMES = atmosphere.frag base.vert compositing.vert compositing.frag shading.vert shading.frag sun.frag textured.frag
+BUILDDIR = build
+SRCDIR = src
+LIBDIR = lib
+SHADERS_PREFIX = $(BUILDDIR)/shaders/
+
+SHADERS_NAMES = atmosphere.frag base.vert fullscreen.vert compositing.frag shading.frag sun.frag textured.frag
 SHADERS = $(addprefix $(SHADERS_PREFIX),$(SHADERS_NAMES))
 
-BINDIR = bin
-
 IMGUI_RAD = imgui.cpp imgui_draw.cpp imgui_tables.cpp imgui_widgets.cpp backends/imgui_impl_opengl3.cpp backends/imgui_impl_glfw.cpp
-IMGUI_SRC = $(addprefix lib/imgui/,$(IMGUI_RAD))
+IMGUI_SRC = $(addprefix $(LIBDIR)/imgui/,$(IMGUI_RAD))
 IMGUI_TMP := $(subst backends/,,$(IMGUI_RAD))
-IMGUI_OBJ := $(addprefix lib/,$(subst .cpp,.o,$(IMGUI_TMP)))
+IMGUI_OBJ := $(addprefix $(LIBDIR)/,$(subst .cpp,.o,$(IMGUI_TMP)))
 
-all: bin/main
+all: $(BUILDDIR)/main
 
-bin/main : src/main.cpp lib/glad.o $(IMGUI_OBJ) | $(SHADERS) $(BINDIR)
-	@echo $(SHADERS)
-	$(CXX) src/main.cpp lib/glad.o $(IMGUI_OBJ) $(GLFLAGS) $(LIBAVCODECS) $(CXXFLAGS) -I include/ -I lib/imgui/ -I lib/imgui/backends/ -o $@
+$(BUILDDIR)/main : $(SRCDIR)/main.cpp $(LIBDIR)/glad.o $(IMGUI_OBJ) | $(SHADERS) $(BUILDDIR)
+	$(CXX) $(SRCDIR)/main.cpp $(LIBDIR)/glad.o $(IMGUI_OBJ) $(GLFLAGS) $(LIBAVCODECS) $(CXXFLAGS) -I include/ -I $(LIBDIR)/imgui/ -I $(LIBDIR)/imgui/backends/ -o $@
 
-lib/glad.o : src/glad.c
-	$(CXX) src/glad.c -I include/ -c -o lib/glad.o
+$(LIBDIR)/glad.o : $(SRCDIR)/glad.c
+	$(CXX) $(SRCDIR)/glad.c -I include/ -c -o $(LIBDIR)/glad.o
 
-bin/shaders/%.vert: shaders/%.vert | $(BINDIR)
-	cp shaders/$*.vert bin/shaders/$*.vert
+$(BUILDDIR)/shaders/%.vert: shaders/%.vert | $(BUILDDIR)
+	$(CP) shaders/$*.vert $(BUILDDIR)/shaders/$*.vert
 
-bin/shaders/%.frag: shaders/%.frag | $(BINDIR)
-	cp shaders/$*.frag bin/shaders/$*.frag
+$(BUILDDIR)/shaders/%.frag: shaders/%.frag | $(BUILDDIR)
+	$(CP) shaders/$*.frag $(BUILDDIR)/shaders/$*.frag
 
-lib/%.o: lib/imgui/%.cpp
-	$(CXX) $^ -c -I lib/imgui/ -o lib/$*.a
+$(LIBDIR)/%.o: $(LIBDIR)/imgui/%.cpp
+	$(CXX) $^ -c -I $(LIBDIR)/imgui/ -o $(LIBDIR)/$*.a
 
-lib/%.o: lib/imgui/backends/%.cpp
-	$(CXX) $^ -c -I lib/imgui/ -o lib/$*.o
+$(LIBDIR)/%.o: $(LIBDIR)/imgui/backends/%.cpp
+	$(CXX) $^ -c -I $(LIBDIR)/imgui/ -o $(LIBDIR)/$*.o
 
 # Create the build directory
-$(BINDIR):
+$(BUILDDIR):
 	mkdir -p $@
 	mkdir -p $@/shaders
 
-run: bin/main
-	./bin/main
+run: $(BUILDDIR)/main
+	./$(BUILDDIR)/main
 
 clean::
-	@rm -rf bin
+	@$(RM) -rf $(BUILDDIR)

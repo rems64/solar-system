@@ -153,10 +153,10 @@ void main() {
     // }
 
     // float gamma = 2.2;
-    float gamma = 1.;
-    float clamp_point = 2.;
-    color = (color * (vec3(1.) + color / pow(clamp_point, 2))) / (color + vec3(1.0));
-    // color = pow(color, vec3(1.0 / gamma));
+    // float gamma = 1.;
+    // float clamp_point = 2.;
+    // color = (color * (vec3(1.) + color / pow(clamp_point, 2))) / (color + vec3(1.0));
+    // // color = pow(color, vec3(1.0 / gamma));
 
     out_color = vec4(color, 1);
 }

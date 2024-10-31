@@ -93,13 +93,6 @@ void main() {
     vec4 pbr = texture(s_gpbr, uv).rgba;
     float metallic = pbr.r;
     float roughness = pbr.g;
-    float emissiveness = pbr.b;
-    float ao = pbr.a;
-
-    vec4 _ray = inverse(view_projection) * vec4(1 * (2 * uv - 1), 1, 1);
-    vec3 ray = normalize(_ray.xyz / _ray.w);
-    float phi = atan(ray.y, ray.x);
-    float theta = acos(ray.z);
 
     vec3 V = normalize(camera_position - position);
 
@@ -111,7 +104,8 @@ void main() {
     vec3 L = normalize(sun_position - position);
     vec3 H = normalize(V + L);
     float distance = length(sun_position - position);
-    float attenuation = 1.0 / (distance * distance);
+    // Prevent division by zero
+    float attenuation = 1.0 / (max(0.001f, distance * distance));
     vec3 radiance = sun_color * attenuation;        
 
     // cook-torrance brdf
