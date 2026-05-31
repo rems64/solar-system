@@ -106,7 +106,7 @@ void main() {
     float distance = length(sun_position - position);
     // Prevent division by zero
     float attenuation = 1.0 / (max(0.001f, distance * distance));
-    vec3 radiance = sun_color * attenuation;        
+    vec3 radiance = sun_color * attenuation;
 
     // cook-torrance brdf
     float NDF = DistributionGGX(normal, H, roughness);
@@ -119,7 +119,7 @@ void main() {
 
     vec3 numerator = NDF * G * F;
     float denominator = 4.0 * max(dot(normal, V), 0.0) * max(dot(normal, L), 0.0) + 0.0001;
-    vec3 specular = numerator / denominator;  
+    vec3 specular = numerator / denominator;
 
     // add to outgoing radiance Lo
     float NdotL = max(dot(normal, L), 0.0);

@@ -33,6 +33,6 @@ void main() {
     // float blend_factor = 0.04;
     // float blend_factor = 0.06;
 
-    out_color = vec4(lerp(gs_color, bloom.rgb, bloom_blend_factor) / (1 + bloom_blend_factor*white_point_value), 1.);
+    out_color = vec4(lerp(gs_color, bloom.rgb, bloom_blend_factor) / (1 + bloom_blend_factor * white_point_value), 1.);
     // out_color = vec4(gs_color, 1);
 }

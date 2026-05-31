@@ -5,7 +5,9 @@
 #include <stdlib.h>
 #include <vector>
 
+#ifndef GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_NONE
+#endif
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 
@@ -1383,7 +1385,7 @@ int main()
     // auto dummy_normal = std::make_shared<Texture>("textures/dummy_normal.png");
 
     // auto stars_texture = std::make_shared<Texture>("textures/2k_sun.jpg");
-    auto stars_texture = std::make_shared<Texture>("textures/starmap_g4k.png");
+    auto stars_texture = std::make_shared<Texture>("textures/2k_stars.jpg");
 
     auto simple_texture_shader = std::make_shared<Shader>("shaders/base.vert",
                                                           "shaders/textured.frag");

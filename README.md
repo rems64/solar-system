@@ -8,6 +8,24 @@ This is a simple solar system featuring :
 - Dead ImGUI for controls
 - Smooth camera motions
 
+## Setup
+
+```bash
+./setup.sh
+make
+make run
+```
+
+Textures are downloaded from [Solar System Scope](https://www.solarsystemscope.com/textures/) (CC BY 4.0). Earth normal/specular maps are converted from TIFF to PNG with ffmpeg.
+
+## LSP support
+
+To generate `compile_commands.json`, run :
+
+```bash
+make lsp
+```
+
 ## Screenshots
 
 ![Earth's view](/imgs/earth_view.png)
